@@ -23,9 +23,18 @@ class SecretStore:
 
     def set(self, name: str, value: str) -> SecretResult:
         if not value:
-            return SecretResult(True, "none", "empty secret skipped")
+            try:
+                deleted = _WindowsCredentialStore().delete(name)
+                backend = "windows_credential_manager" if deleted else "none"
+                return SecretResult(True, backend, "empty secret deleted")
+            except Exception as exc:
+                return SecretResult(False, "unavailable", str(exc))
         try:
-            _WindowsCredentialStore().set(name, value)
+            store = _WindowsCredentialStore()
+            store.set(name, value)
+            restored = store.get(name)
+            if restored != value:
+                return SecretResult(False, "unavailable", "secret write verification failed")
             return SecretResult(True, "windows_credential_manager", "secret saved")
         except Exception as exc:
             return SecretResult(False, "unavailable", str(exc))
@@ -61,3 +70,11 @@ class _WindowsCredentialStore:
             0,
         )
 
+    def delete(self, name: str) -> bool:
+        import win32cred
+
+        try:
+            win32cred.CredDelete(self._target(name), win32cred.CRED_TYPE_GENERIC)
+        except Exception:
+            return False
+        return True

@@ -30,7 +30,7 @@ def main() -> int:
     window._ai_model.setText("audit-model")
     window._ai_api_key.setText("sk-settings-audit-secret-value")
     window._privacy_debug_screenshots.setChecked(True)
-    window._capture_auto_enabled.setChecked(True)
+    window._capture_auto_enabled.setChecked(False)
     window._capture_debounce.setValue(1200)
     window._floating_placement.setCurrentText("top")
     window._floating_opacity.setValue(87)

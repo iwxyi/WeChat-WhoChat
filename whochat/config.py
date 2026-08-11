@@ -106,7 +106,7 @@ class ConfigStore:
             targets=_load_targets(data.get("targets")),
         )
         secret = self.secrets.get(AI_API_KEY_NAME)
-        if secret:
+        if secret and not config.ai.api_key:
             config.ai.api_key = secret
         return config
 
