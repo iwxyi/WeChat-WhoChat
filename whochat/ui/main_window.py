@@ -47,7 +47,7 @@ from whochat.config import AppConfig, ConfigStore, TargetWindowConfig
 from whochat.capture.screenshot import capture_rect
 from whochat.core.models import Contact, ContactStatus, ConversationType, IdentityStatus, Memory, MemoryKind, MemoryStatus, Strategy
 from whochat.core.models import utc_now_iso
-from whochat.core.runtime import LayoutRegions, Rect, RuntimeState, TargetApp, ThemeMode
+from whochat.core.runtime import LayoutRegions, Rect, RuntimeState, TargetApp, ThemeMode, WindowState
 from whochat.core.paths import app_data_dir
 from whochat.diagnostics import diagnostics_log_path
 from whochat.ocr.engine import PreviewOcrEngine, create_ocr_engine
@@ -935,6 +935,14 @@ class MainWindow(QMainWindow):
                 self._floating.hide()
             self.float_button.setText("显示悬浮窗")
             self.floating_visibility_changed.emit(False)
+            return
+        state = self._services.runtime.state
+        if state.window.state != WindowState.VISIBLE or state.window.rect is None:
+            reason = state.window.diagnostic or state.capture_decision.reason or "当前没有可用目标窗口"
+            if hasattr(self._floating, "hide_for_window_state"):
+                self._floating.hide_for_window_state(reason)
+            self.float_button.setText("显示悬浮窗")
+            self.statusBar().showMessage(reason, 3000)
             return
         if hasattr(self._floating, "show_by_user"):
             self._floating.show_by_user()

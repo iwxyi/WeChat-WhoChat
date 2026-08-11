@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
+from PIL import ImageGrab
 
 from whochat.diagnostics import configure_native_runtime_limits, configure_process_diagnostics
 from whochat.config import ConfigStore
@@ -49,19 +51,43 @@ def main() -> int:
     app.aboutToQuit.connect(services.shutdown)
     app.aboutToQuit.connect(floating.close)
     main_window.show()
-    floating.show_waiting()
     follower.start()
     return app.exec()
 
 
-def _sync_floating(floating: FloatingWidget, window) -> None:
+def _sync_floating(
+    floating: FloatingWidget,
+    window,
+    color_sampler: Callable[[tuple[int, int, int, int]], tuple[int, int, int] | None] | None = None,
+) -> None:
     if window is None:
         floating.hide_for_window_state("未发现已启用的聊天窗口")
         return
     if getattr(window, "minimized", False) or not getattr(window, "visible", True):
         floating.hide_for_window_state(getattr(window, "diagnostic", "") or "目标窗口不可见")
         return
+    if hasattr(floating, "apply_window_color"):
+        sampler = color_sampler or _average_window_color
+        floating.apply_window_color(sampler(window.rect))
     floating.attach_to_window_rect(window.rect, window.title)
+
+
+def _average_window_color(rect: tuple[int, int, int, int]) -> tuple[int, int, int] | None:
+    left, top, right, bottom = rect
+    width = max(1, right - left)
+    height = max(1, bottom - top)
+    sample_rect = (
+        left + round(width * 0.36),
+        top + round(height * 0.12),
+        left + round(width * 0.96),
+        top + round(height * 0.82),
+    )
+    try:
+        image = ImageGrab.grab(bbox=sample_rect).convert("RGB").resize((1, 1))
+        pixel = image.getpixel((0, 0))
+    except Exception:
+        return None
+    return int(pixel[0]), int(pixel[1]), int(pixel[2])
 
 
 if __name__ == "__main__":

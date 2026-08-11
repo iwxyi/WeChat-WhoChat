@@ -37,6 +37,21 @@ def main() -> int:
         raise RuntimeError(f"placement edge was not recorded: {floating.placement_edge}")
     if "贴靠目标窗口" not in floating.status_label.toolTip():
         raise RuntimeError(f"placement tooltip missing: {floating.status_label.toolTip()}")
+    _sync_floating(
+        floating,
+        WindowInfo(
+            hwnd=66,
+            title="微信",
+            process_name="Weixin.exe",
+            rect=(100, 100, 900, 720),
+            visible=True,
+            target_app="wechat",
+            app_label="微信",
+        ),
+        color_sampler=lambda _rect: (32, 80, 72),
+    )
+    if "#floatingroot" not in floating.root.styleSheet().lower():
+        raise RuntimeError("floating widget should apply sampled window color stylesheet")
 
     floating.hide_by_user()
     floating.attach_to_window_rect((120, 120, 920, 740), "微信")
@@ -61,6 +76,10 @@ def main() -> int:
     _sync_floating(floating, minimized)
     if floating.isVisible() or floating.placement_edge:
         raise RuntimeError("minimized target should hide floating widget and clear placement edge")
+    floating.show_waiting()
+    _sync_floating(floating, None)
+    if floating.isVisible() or floating.placement_edge:
+        raise RuntimeError("missing target should hide floating widget")
 
     print(f"status={floating.status_label.text()} edge={floating.placement_edge or '-'}")
     floating.close()

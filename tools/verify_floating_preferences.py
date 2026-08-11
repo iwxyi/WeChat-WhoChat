@@ -45,6 +45,10 @@ def main() -> int:
     services = build_services()
     window = MainWindow(services)
     window.attach_floating_widget(floating)
+    floating.hide_for_window_state("无目标")
+    window._toggle_floating()
+    if floating.isVisible():
+        raise RuntimeError("main window should not show floating widget when no visible target exists")
     window._select_page("settings")
     window._floating_placement.setCurrentText("left")
     window._floating_opacity.setValue(88)

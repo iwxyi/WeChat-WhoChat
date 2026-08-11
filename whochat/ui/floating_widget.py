@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtCore import QPoint, Qt, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QWidget
 
 from whochat.ai.models import ReplyGenerationResult
@@ -47,9 +47,9 @@ class FloatingWidget(QWidget):
         self._placement_preference = "auto"
         self._suggestion_count = 3
 
-        root = QFrame()
-        root.setObjectName("FloatingRoot")
-        shell = QHBoxLayout(root)
+        self.root = QFrame()
+        self.root.setObjectName("FloatingRoot")
+        shell = QHBoxLayout(self.root)
         shell.setContentsMargins(8, 6, 8, 6)
         shell.setSpacing(6)
         self.contact_label = QLabel("未确认联系人")
@@ -92,7 +92,7 @@ class FloatingWidget(QWidget):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(root)
+        layout.addWidget(self.root)
 
         self._place_on_primary_screen()
 
@@ -207,6 +207,49 @@ class FloatingWidget(QWidget):
         self.action_button.setVisible(False)
         if not self._user_hidden:
             self.hide()
+
+    def apply_window_color(self, rgb: tuple[int, int, int] | None) -> None:
+        if rgb is None:
+            self.root.setStyleSheet("")
+            return
+        base = QColor(*rgb)
+        bg = _blend(base, QColor("#ffffff"), 0.72)
+        border = _blend(base, QColor("#52606d"), 0.58)
+        button_bg = _blend(base, QColor("#ffffff"), 0.84)
+        hover_bg = _blend(base, QColor("#ffffff"), 0.70)
+        accent = _readable_accent(base)
+        text = "#ffffff" if _luminance(bg) < 0.45 else "#102a43"
+        muted = "#e5e7eb" if _luminance(bg) < 0.45 else "#52606d"
+        self.root.setStyleSheet(
+            f"""
+            QFrame#FloatingRoot {{
+              background: {bg.name()};
+              border: 1px solid {border.name()};
+              border-radius: 7px;
+            }}
+            QLabel#FloatingContact {{
+              color: {text};
+              background: transparent;
+            }}
+            QLabel#FloatingStatus {{
+              color: {muted};
+              background: transparent;
+            }}
+            QLabel#FloatingBadge {{
+              color: {accent.name()};
+              background: {button_bg.name()};
+            }}
+            QPushButton#FloatingGhostButton, QPushButton#FloatingSuggestionButton {{
+              color: {text};
+              background: {button_bg.name()};
+              border: 1px solid {border.name()};
+            }}
+            QPushButton#FloatingSuggestionButton:hover {{
+              border-color: {accent.name()};
+              background: {hover_bg.name()};
+            }}
+            """
+        )
 
     def _sync_action_button(self, *, status: str, action: str) -> None:
         text = f"{status} {action}"
@@ -355,3 +398,22 @@ def _risk_status(result: ReplyGenerationResult) -> str:
     if "medium" in risks:
         return "中风险"
     return "可复制"
+
+
+def _blend(left: QColor, right: QColor, right_ratio: float) -> QColor:
+    ratio = max(0.0, min(1.0, right_ratio))
+    return QColor(
+        round(left.red() * (1 - ratio) + right.red() * ratio),
+        round(left.green() * (1 - ratio) + right.green() * ratio),
+        round(left.blue() * (1 - ratio) + right.blue() * ratio),
+    )
+
+
+def _luminance(color: QColor) -> float:
+    return (0.2126 * color.red() + 0.7152 * color.green() + 0.0722 * color.blue()) / 255
+
+
+def _readable_accent(base: QColor) -> QColor:
+    if _luminance(base) < 0.38:
+        return QColor("#a7f3d0")
+    return _blend(base, QColor("#0f766e"), 0.52)
