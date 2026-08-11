@@ -52,10 +52,7 @@ def test_ai_connection(config: AppConfig) -> AIConnectionTestResult:
     request = urllib.request.Request(
         endpoint,
         data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {config.ai.api_key}",
-            "Content-Type": "application/json",
-        },
+        headers=_provider_headers(config.ai.api_key),
         method="POST",
     )
     timeout = max(3, min(config.ai.timeout_seconds, 20))
@@ -154,10 +151,7 @@ def _generate_openai_compatible(context: ReplyContext, config: AppConfig) -> Rep
     request = urllib.request.Request(
         endpoint,
         data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {config.ai.api_key}",
-            "Content-Type": "application/json",
-        },
+        headers=_provider_headers(config.ai.api_key),
         method="POST",
     )
     started = time.monotonic()
@@ -231,12 +225,21 @@ def _http_error_message(code: int, reason: str) -> str:
     if code == 401:
         return "HTTP 401：认证失败，请检查 API Key 是否属于当前服务商，接口地址是否填到对应 Provider 的 /v1"
     if code == 403:
-        return "HTTP 403：无权限，请检查账号额度、模型权限或服务商访问限制"
+        return "HTTP 403：服务商拒绝访问；若其他软件可用，请核对 Base URL、模型名、账号/模型权限，或服务商是否限制请求头/IP"
     if code == 404:
         return "HTTP 404：接口或模型不存在，请检查接口地址和模型名称"
     if code == 429:
         return "HTTP 429：请求过于频繁或额度不足，请稍后重试或检查服务商额度"
     return f"HTTP {code}: {reason}"
+
+
+def _provider_headers(api_key: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "WhoChat/0.1 OpenAI-Compatible-Client",
+    }
 
 
 def _log_ai_provider(endpoint: str, elapsed_ms: int, status: str, detail: str) -> None:
