@@ -42,7 +42,8 @@ def main() -> int:
     )
     _assert_step(unknown_steps, "页面", "阻断")
     _assert_step(unknown_steps, "AI", "阻断")
-    _assert_action_contains(unknown_steps, "页面", "聊天页")
+    _assert_action_contains(unknown_steps, "页面", "立即采集")
+    _assert_no_text(unknown_steps, "仅从窗口标题无法确认")
 
     chat_state = replace(state, page=PageClassification(PageType.CHAT_DM, 0.9, "verify chat"))
     unconfirmed_steps = build_status_chain(
@@ -166,6 +167,12 @@ def _assert_action_contains(steps, stage: str, text: str) -> None:
         raise RuntimeError(f"missing stage: {stage}")
     if text not in match.action:
         raise RuntimeError(f"unexpected action for {stage}: {match.action}, expected to contain {text}")
+
+
+def _assert_no_text(steps, text: str) -> None:
+    combined = "\n".join(f"{step.stage} {step.state} {step.reason} {step.action}" for step in steps)
+    if text in combined:
+        raise RuntimeError(f"status chain still contains stale text: {text}")
 
 
 if __name__ == "__main__":

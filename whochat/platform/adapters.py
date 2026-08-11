@@ -143,7 +143,7 @@ class WeChatAdapter(PlatformAdapter):
             return PageClassification(
                 PageType.UNKNOWN,
                 0.45,
-                "仅从窗口标题无法确认当前是否为聊天页，等待标题 OCR 或用户校准",
+                "微信窗口已命中，等待 OCR 采集确认聊天页",
             )
         return PageClassification(
             PageType.UNKNOWN,

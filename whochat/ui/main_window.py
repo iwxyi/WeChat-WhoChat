@@ -564,6 +564,16 @@ def _primary_status_step(steps):
     return steps[-1]
 
 
+def _should_show_overview_capture(state: RuntimeState) -> bool:
+    if state.ocr_pending or state.pipeline_status == "running":
+        return False
+    if not state.capture_decision.should_capture:
+        return False
+    if not state.page.can_generate_reply:
+        return True
+    return state.pipeline_status in {"idle", "title_ready"} or state.pipeline_status.startswith("discarded:")
+
+
 def _strategy_status_label(strategy: Strategy) -> str:
     prefix = "内置" if strategy.id in {"default", "manual_protect"} else "自定义"
     return f"{prefix} / 已归档" if strategy.archived else f"{prefix} / 启用"
@@ -615,6 +625,7 @@ class MainWindow(QMainWindow):
         self._overview_status_summary: QLabel | None = None
         self._overview_next_action: QLabel | None = None
         self._overview_next_action_meta: QLabel | None = None
+        self._overview_capture_button: QPushButton | None = None
         self._overview_status_table: QTableWidget | None = None
         self._overview_chat_table: QTableWidget | None = None
         self._overview_contact_values: dict[str, QLabel] = {}
@@ -1024,9 +1035,16 @@ class MainWindow(QMainWindow):
         next_action_meta = QLabel("未连接目标窗口")
         next_action_meta.setObjectName("TinyMuted")
         next_action_meta.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        capture_now = QPushButton("立即采集")
+        capture_now.setObjectName("PrimaryButton")
+        capture_now.setToolTip("对当前目标窗口运行一次截图和 OCR，用 OCR 结果确认是否为聊天页。")
+        capture_now.clicked.connect(self._run_capture_pipeline)
+        capture_now.setVisible(False)
         self._overview_next_action = next_action
         self._overview_next_action_meta = next_action_meta
+        self._overview_capture_button = capture_now
         action_layout.addWidget(next_action, 1)
+        action_layout.addWidget(capture_now)
         action_layout.addWidget(next_action_meta)
         status_chain.layout().addWidget(action_banner)
         status_summary = QLabel("等待运行态")
@@ -1122,6 +1140,8 @@ class MainWindow(QMainWindow):
                 self._overview_next_action.setToolTip(_status_reason_with_action(primary))
                 self._overview_next_action_meta.setText(f"{primary.stage} · {primary.state}")
                 self._overview_next_action_meta.setToolTip(primary.reason)
+                if self._overview_capture_button is not None:
+                    self._overview_capture_button.setVisible(_should_show_overview_capture(self._services.runtime.state))
             self._fill_table(self._overview_status_table, [(step.stage, step.state, _status_reason_with_action(step)) for step in steps])
             for row in range(self._overview_status_table.rowCount()):
                 self._overview_status_table.setRowHeight(row, 22)
