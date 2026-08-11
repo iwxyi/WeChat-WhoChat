@@ -125,14 +125,10 @@ def parse_visible_messages(result: OcrResult, layout: LayoutRegions) -> list[Par
 
 
 def _message_from_box(box: OcrTextBox, layout: LayoutRegions, time_text: str | None = None) -> ParsedOcrMessage:
-    center_x = (box.rect.left + box.rect.right) / 2
-    midpoint = layout.message_rect.left + layout.message_rect.width * 0.54
-    right_aligned = box.rect.right >= layout.message_rect.right - layout.message_rect.width * 0.08
-    left_aligned = box.rect.left <= layout.message_rect.left + layout.message_rect.width * 0.18
-    speaker = Speaker.ME if center_x >= midpoint or (right_aligned and not left_aligned) else Speaker.OTHER
+    speaker, geometry_reason = _speaker_from_geometry(box, layout)
     partial = _is_edge_partial_box(box, layout)
     confidence = min(0.95, max(0.0, box.confidence - (0.08 if partial else 0.0)))
-    reason = "根据消息区水平位置推断说话人"
+    reason = f"根据消息区坐标推断说话人：{geometry_reason}"
     if partial:
         reason += "；文本接近消息区边缘，标记为 partial"
     return ParsedOcrMessage(
@@ -193,16 +189,69 @@ def _looks_like_non_message_overlay(box: OcrTextBox, layout: LayoutRegions) -> b
     text = _compact_text(box.text)
     if not text:
         return True
-    if re.match(r"^[↑⬆上个]?\d{1,4}条新消息$", text):
+    if _looks_like_new_message_text(text) and _is_floating_new_message_hint(box, layout):
         return True
-    if re.match(r"^[^\d]{0,2}\d{1,4}条新消息$", text):
-        return True
-    center_x = (box.rect.left + box.rect.right) / 2
-    middle = layout.message_rect.left + layout.message_rect.width / 2
-    narrow = box.rect.width <= layout.message_rect.width * 0.36
-    if narrow and abs(center_x - middle) <= layout.message_rect.width * 0.22 and _looks_like_time_text(text):
+    if _is_center_system_hint(box, layout) and _looks_like_time_text(text):
         return True
     return False
+
+
+def _looks_like_new_message_text(text: str) -> bool:
+    return bool(
+        re.match(r"^[↑⬆上个]?\d{1,4}条新消息$", text)
+        or re.match(r"^[^\d]{0,2}\d{1,4}条新消息$", text)
+    )
+
+
+def _speaker_from_geometry(box: OcrTextBox, layout: LayoutRegions) -> tuple[Speaker, str]:
+    center_ratio = _horizontal_ratio(box, layout)
+    left_ratio = _edge_ratio(box.rect.left, layout)
+    right_ratio = _edge_ratio(box.rect.right, layout)
+    left_aligned = _is_left_bubble_lane(box, layout)
+    right_aligned = _is_right_bubble_lane(box, layout)
+    speaker = Speaker.ME if center_ratio >= 0.54 or (right_aligned and not left_aligned) else Speaker.OTHER
+    reason = (
+        f"rect={box.rect.as_tuple()} center_x={center_ratio:.2f} "
+        f"left={left_ratio:.2f} right={right_ratio:.2f} "
+        f"left_lane={left_aligned} right_lane={right_aligned}"
+    )
+    return speaker, reason
+
+
+def _is_left_bubble_lane(box: OcrTextBox, layout: LayoutRegions) -> bool:
+    left_ratio = _edge_ratio(box.rect.left, layout)
+    center_ratio = _horizontal_ratio(box, layout)
+    return left_ratio <= 0.22 and center_ratio <= 0.62
+
+
+def _is_right_bubble_lane(box: OcrTextBox, layout: LayoutRegions) -> bool:
+    right_ratio = _edge_ratio(box.rect.right, layout)
+    center_ratio = _horizontal_ratio(box, layout)
+    return right_ratio >= 0.90 and center_ratio >= 0.48
+
+
+def _is_center_system_hint(box: OcrTextBox, layout: LayoutRegions) -> bool:
+    center_ratio = _horizontal_ratio(box, layout)
+    narrow = box.rect.width <= layout.message_rect.width * 0.36
+    return narrow and 0.38 <= center_ratio <= 0.62
+
+
+def _is_floating_new_message_hint(box: OcrTextBox, layout: LayoutRegions) -> bool:
+    center_ratio = _horizontal_ratio(box, layout)
+    width_ratio = box.rect.width / max(1, layout.message_rect.width)
+    height_ratio = box.rect.height / max(1, layout.message_rect.height)
+    if _is_left_bubble_lane(box, layout) or _is_right_bubble_lane(box, layout):
+        return False
+    return 0.55 <= center_ratio <= 0.90 and width_ratio <= 0.34 and height_ratio <= 0.11
+
+
+def _horizontal_ratio(box: OcrTextBox, layout: LayoutRegions) -> float:
+    center_x = (box.rect.left + box.rect.right) / 2
+    return _edge_ratio(center_x, layout)
+
+
+def _edge_ratio(value: float, layout: LayoutRegions) -> float:
+    return (value - layout.message_rect.left) / max(1, layout.message_rect.width)
 
 
 def _assign_time_anchors(boxes: list[OcrTextBox], layout: LayoutRegions) -> dict[str, object]:

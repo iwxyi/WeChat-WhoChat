@@ -60,6 +60,8 @@ def main() -> int:
         raise RuntimeError(f"expected 2 parsed messages, got {len(messages)}")
     if messages[0].speaker != Speaker.OTHER or messages[1].speaker != Speaker.ME:
         raise RuntimeError(f"speaker inference failed: {[item.speaker for item in messages]}")
+    if "rect=" not in messages[1].reason or "center_x=" not in messages[1].reason:
+        raise RuntimeError(f"message reason should include coordinate evidence: {messages[1].reason}")
 
     noisy_result = OcrResult(
         boxes=[
@@ -83,6 +85,21 @@ def main() -> int:
         raise RuntimeError(f"weekday time anchor was not attached: {noisy_messages[0]}")
     if noisy_messages[1].speaker != Speaker.ME:
         raise RuntimeError(f"right aligned message should be mine: {noisy_messages[1]}")
+    if "right_lane=True" not in noisy_messages[1].reason:
+        raise RuntimeError(f"right aligned message should expose geometry reason: {noisy_messages[1].reason}")
+
+    message_like_overlay_text = OcrResult(
+        boxes=[
+            OcrTextBox("联系人 A", Rect(430, 16, 520, 44), 0.9, OcrRegion.UNKNOWN, "verify"),
+            OcrTextBox("我刚看到48条新消息", Rect(820, 236, 1138, 286), 0.86, OcrRegion.UNKNOWN, "verify"),
+            OcrTextBox("输入一些内容", Rect(430, 674, 650, 710), 0.8, OcrRegion.UNKNOWN, "verify"),
+        ],
+        source_image="verify.png",
+        engine="verify",
+    )
+    overlay_text_messages = parse_visible_messages(message_like_overlay_text, layout)
+    if [item.text for item in overlay_text_messages] != ["我刚看到48条新消息"]:
+        raise RuntimeError(f"normal bubble text should not be filtered by content alone: {overlay_text_messages}")
 
     adapter_page = adapter.classify_page_with_ocr(window, layout, result)
     if adapter_page.page_type != PageType.CHAT_DM:
