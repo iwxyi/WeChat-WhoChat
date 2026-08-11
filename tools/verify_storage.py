@@ -85,11 +85,15 @@ def main() -> int:
         partial=False,
         fingerprint=fingerprint,
         source="storage_verify",
+        sender_name="张三",
     )
     inserted = services.messages.add_message(message)
     duplicate = services.messages.add_message(message)
     if not inserted or duplicate:
         raise RuntimeError("message insert/dedup failed")
+    stored_message = services.messages.list_for_contact(contact.id, 1)[0]
+    if stored_message.sender_name != "张三":
+        raise RuntimeError(f"message sender_name was not persisted: {stored_message}")
 
     memory = services.memories.add_pending(contact.id, MemoryKind.FACT, "测试联系人喜欢简洁回复", 0.9)
     memories = services.memories.list_for_contact(contact.id)

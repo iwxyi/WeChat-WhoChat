@@ -115,20 +115,31 @@ def parse_visible_messages(result: OcrResult, layout: LayoutRegions) -> list[Par
     ]
     message_boxes.sort(key=lambda box: (box.rect.top, box.rect.left))
     timeline = _assign_time_anchors(message_boxes, layout)
+    sender_labels = _assign_sender_labels(message_boxes, layout, timeline["anchors"])
     filtered = [
-        box for index, box in enumerate(message_boxes)
+        box for box in message_boxes
         if box not in timeline["anchors"]
+        and box not in sender_labels["labels"]
         and not _looks_like_non_message_overlay(box, layout)
-        and not _looks_like_sender_label(box, message_boxes[index + 1] if index + 1 < len(message_boxes) else None, layout)
     ]
-    return [_message_from_box(box, layout, timeline["times"].get(box)) for box in filtered]
+    return [
+        _message_from_box(box, layout, timeline["times"].get(box), sender_labels["senders"].get(box))
+        for box in filtered
+    ]
 
 
-def _message_from_box(box: OcrTextBox, layout: LayoutRegions, time_text: str | None = None) -> ParsedOcrMessage:
+def _message_from_box(
+    box: OcrTextBox,
+    layout: LayoutRegions,
+    time_text: str | None = None,
+    sender_name: str | None = None,
+) -> ParsedOcrMessage:
     speaker, geometry_reason = _speaker_from_geometry(box, layout)
     partial = _is_edge_partial_box(box, layout)
     confidence = min(0.95, max(0.0, box.confidence - (0.08 if partial else 0.0)))
     reason = f"根据消息区坐标推断说话人：{geometry_reason}"
+    if sender_name:
+        reason += f"；上方坐标标签识别为发送者：{sender_name}"
     if partial:
         reason += "；文本接近消息区边缘，标记为 partial"
     return ParsedOcrMessage(
@@ -139,6 +150,7 @@ def _message_from_box(box: OcrTextBox, layout: LayoutRegions, time_text: str | N
         partial=partial,
         reason=reason,
         time_text=time_text,
+        sender_name=sender_name,
     )
 
 
@@ -169,20 +181,76 @@ def _looks_like_group_title(value: str) -> bool:
     return any(marker in text for marker in markers)
 
 
+def _assign_sender_labels(
+    boxes: list[OcrTextBox],
+    layout: LayoutRegions,
+    ignored: set[OcrTextBox],
+) -> dict[str, object]:
+    labels: set[OcrTextBox] = set()
+    senders: dict[OcrTextBox, str] = {}
+    usable = [box for box in boxes if box not in ignored and not _looks_like_non_message_overlay(box, layout)]
+    for index, box in enumerate(usable):
+        next_box = _next_lower_left_message_box(box, usable[index + 1 :], layout)
+        if _looks_like_sender_label(box, next_box, layout):
+            labels.add(box)
+            senders[next_box] = box.text.strip()
+    return {"labels": labels, "senders": senders}
+
+
+def _next_lower_left_message_box(
+    box: OcrTextBox,
+    candidates: list[OcrTextBox],
+    layout: LayoutRegions,
+) -> OcrTextBox | None:
+    max_gap = max(22, round(layout.message_rect.height * 0.045))
+    for candidate in candidates:
+        if candidate.rect.top < box.rect.bottom:
+            continue
+        if candidate.rect.top - box.rect.bottom > max_gap:
+            return None
+        if _is_left_bubble_lane(candidate, layout):
+            return candidate
+    return None
+
+
 def _looks_like_sender_label(box: OcrTextBox, next_box: OcrTextBox | None, layout: LayoutRegions) -> bool:
     text = box.text.strip()
     if next_box is None or not text:
         return False
-    if len(text) > 10 or any(ch in text for ch in "，。！？,.?!:："):
+    if not _looks_like_sender_label_text(text):
         return False
-    center_x = (box.rect.left + box.rect.right) / 2
-    midpoint = layout.message_rect.left + layout.message_rect.width * 0.54
-    if center_x >= midpoint:
+    if not _is_left_label_lane(box, layout):
         return False
     vertical_gap = next_box.rect.top - box.rect.bottom
-    left_aligned = abs(next_box.rect.left - box.rect.left) <= max(24, round(layout.message_rect.width * 0.04))
-    compact_label = box.rect.height <= max(26, round(layout.message_rect.height * 0.06))
-    return 0 <= vertical_gap <= 18 and left_aligned and compact_label
+    horizontal_gap = abs(next_box.rect.left - box.rect.left)
+    aligned_with_next = horizontal_gap <= max(42, round(layout.message_rect.width * 0.07))
+    compact_label = box.rect.height <= max(24, round(layout.message_rect.height * 0.045))
+    narrower_than_message = box.rect.width <= max(150, round(next_box.rect.width * 0.72))
+    return 0 <= vertical_gap <= max(22, round(layout.message_rect.height * 0.045)) and aligned_with_next and compact_label and narrower_than_message
+
+
+def _looks_like_sender_label_text(text: str) -> bool:
+    value = text.strip()
+    if len(value) > 16:
+        return False
+    if any(ch in value for ch in "，。！？,.?!:：；;、"):
+        return False
+    if _looks_like_time_text(value) or _looks_like_new_message_text(_compact_text(value)):
+        return False
+    common_short_messages = {
+        "好",
+        "好的",
+        "收到",
+        "可以",
+        "行",
+        "嗯",
+        "嗯嗯",
+        "OK",
+        "ok",
+        "谢谢",
+        "辛苦了",
+    }
+    return value not in common_short_messages
 
 
 def _looks_like_non_message_overlay(box: OcrTextBox, layout: LayoutRegions) -> bool:
@@ -222,6 +290,12 @@ def _is_left_bubble_lane(box: OcrTextBox, layout: LayoutRegions) -> bool:
     left_ratio = _edge_ratio(box.rect.left, layout)
     center_ratio = _horizontal_ratio(box, layout)
     return left_ratio <= 0.22 and center_ratio <= 0.62
+
+
+def _is_left_label_lane(box: OcrTextBox, layout: LayoutRegions) -> bool:
+    left_ratio = _edge_ratio(box.rect.left, layout)
+    center_ratio = _horizontal_ratio(box, layout)
+    return left_ratio <= 0.26 and center_ratio <= 0.50
 
 
 def _is_right_bubble_lane(box: OcrTextBox, layout: LayoutRegions) -> bool:

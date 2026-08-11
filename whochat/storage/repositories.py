@@ -561,8 +561,8 @@ class MessageRepository:
             cursor = conn.execute(
                 """
                 INSERT OR IGNORE INTO messages
-                (id, contact_id, speaker, text, content_type, ocr_confidence, observed_at, message_time, time_source, partial, fingerprint, source)
-                VALUES (:id, :contact_id, :speaker, :text, :content_type, :ocr_confidence, :observed_at, :message_time, :time_source, :partial, :fingerprint, :source)
+                (id, contact_id, speaker, text, content_type, ocr_confidence, observed_at, message_time, time_source, partial, fingerprint, source, sender_name)
+                VALUES (:id, :contact_id, :speaker, :text, :content_type, :ocr_confidence, :observed_at, :message_time, :time_source, :partial, :fingerprint, :source, :sender_name)
                 """,
                 _message_params(message),
             )
@@ -1091,6 +1091,7 @@ def _message_from_row(row) -> Message:
     data = dict(row)
     data["speaker"] = Speaker(data["speaker"])
     data["partial"] = bool(data["partial"])
+    data.setdefault("sender_name", "")
     return Message(**data)
 
 
@@ -1141,6 +1142,7 @@ def _message_params(message: Message) -> dict:
     data = asdict(message)
     data["speaker"] = message.speaker.value
     data["partial"] = int(message.partial)
+    data["sender_name"] = message.sender_name or ""
     return data
 
 

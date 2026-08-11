@@ -268,6 +268,7 @@ def message_from_parsed(contact_id: str, parsed: ParsedOcrMessage, result: Pipel
         partial=parsed.partial,
         fingerprint=_fingerprint("ocr", contact_id, parsed, result),
         source=f"ocr_pipeline:{result.ocr_result.engine}",
+        sender_name=parsed.sender_name or "",
     )
 
 
@@ -285,6 +286,7 @@ def message_from_stitched(contact_id: str, stitched: StitchedMessage, result: Pi
         partial=stitched.partial,
         fingerprint=_stitched_fingerprint("stitched", contact_id, stitched, result),
         source=f"ocr_stitched:{result.ocr_result.engine}",
+        sender_name=stitched.sender_name,
     )
 
 
@@ -292,6 +294,7 @@ def _fingerprint(prefix: str, contact_id: str, parsed: ParsedOcrMessage, result:
     bucket = (
         contact_id,
         parsed.speaker.value,
+        parsed.sender_name or "",
         parsed.text.strip(),
         str(round(parsed.confidence, 1)),
         str(parsed.partial),
@@ -306,6 +309,7 @@ def _stitched_fingerprint(prefix: str, contact_id: str, stitched: StitchedMessag
     bucket = (
         contact_id,
         stitched.speaker.value,
+        stitched.sender_name,
         " ".join(stitched.text.strip().split()).lower(),
         result.ocr_result.engine,
     )

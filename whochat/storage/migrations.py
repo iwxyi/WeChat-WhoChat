@@ -295,4 +295,11 @@ MIGRATIONS: list[tuple[int, str]] = [
         CREATE INDEX idx_reply_feedback_context ON reply_feedback(context_hash);
         """,
     ),
+    (
+        12,
+        """
+        ALTER TABLE messages ADD COLUMN sender_name TEXT NOT NULL DEFAULT '';
+        CREATE INDEX idx_messages_contact_sender ON messages(contact_id, sender_name);
+        """,
+    ),
 ]

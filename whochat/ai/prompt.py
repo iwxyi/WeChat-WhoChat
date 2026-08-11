@@ -55,10 +55,16 @@ def system_prompt(context: ReplyContext) -> str:
 
 
 def user_prompt(context: ReplyContext) -> str:
-    messages = "\n".join(f"{m.speaker.value}: {m.text}" for m in context.messages[-20:])
+    messages = "\n".join(f"{_message_speaker_label(m)}: {m.text}" for m in context.messages[-20:])
     memories = "\n".join(f"- {m.kind.value}: {m.content}" for m in context.memories[:20])
     contact = context.contact.display_name if context.contact else "未知联系人"
     return f"联系人：{contact}\n\n长期记忆：\n{memories or '-'}\n\n最近聊天：\n{messages or '-'}"
+
+
+def _message_speaker_label(message) -> str:
+    if getattr(message, "sender_name", ""):
+        return f"{message.speaker.value}({message.sender_name})"
+    return message.speaker.value
 
 
 def redact_sensitive_text(value: str) -> tuple[str, dict[str, int]]:

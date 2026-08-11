@@ -52,3 +52,4 @@ class ParsedOcrMessage:
     partial: bool
     reason: str
     time_text: str | None = None
+    sender_name: str | None = None

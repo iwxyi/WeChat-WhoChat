@@ -19,6 +19,7 @@ class StitchedMessage:
     message_time: str | None = None
     time_source: str = "observed"
     observations: int = 1
+    sender_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -104,11 +105,12 @@ def _from_parsed(message: ParsedOcrMessage, observed_at: str) -> StitchedMessage
         last_seen_at=observed_at,
         message_time=resolved_time,
         time_source=time_source,
+        sender_name=message.sender_name or "",
     )
 
 
-def _key(message: StitchedMessage) -> tuple[str, str]:
-    return (message.speaker.value, _normalize_text(message.text))
+def _key(message: StitchedMessage) -> tuple[str, str, str]:
+    return (message.speaker.value, _normalize_text(message.sender_name), _normalize_text(message.text))
 
 
 def _normalize_text(value: str) -> str:

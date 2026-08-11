@@ -45,7 +45,7 @@ from whochat.ai.generator import test_ai_connection
 from whochat.ai.prompt import PromptPreview, build_prompt_preview
 from whochat.config import AppConfig, ConfigStore, TargetWindowConfig
 from whochat.capture.screenshot import capture_rect
-from whochat.core.models import Contact, ContactStatus, ConversationType, IdentityStatus, Memory, MemoryKind, MemoryStatus, Strategy
+from whochat.core.models import Contact, ContactStatus, ConversationType, IdentityStatus, Memory, MemoryKind, MemoryStatus, Speaker, Strategy
 from whochat.core.models import utc_now_iso
 from whochat.core.runtime import LayoutRegions, Rect, RuntimeState, TargetApp, ThemeMode, WindowState
 from whochat.core.paths import app_data_dir
@@ -548,6 +548,14 @@ def _status_reason_with_action(step) -> str:
     if step.action in step.reason:
         return step.reason
     return f"{step.reason}｜建议：{step.action}"
+
+
+def _message_speaker_label(message, speaker_map: dict[str, str]) -> str:
+    base = speaker_map.get(message.speaker.value, message.speaker.value)
+    sender_name = getattr(message, "sender_name", "")
+    if sender_name and message.speaker != Speaker.ME:
+        return f"{base}：{sender_name}"
+    return base
 
 
 def _primary_status_step(steps):
@@ -1245,7 +1253,7 @@ class MainWindow(QMainWindow):
         }
         return [
             (
-                speaker_map.get(message.speaker.value, message.speaker.value),
+                _message_speaker_label(message, speaker_map),
                 message.text,
                 "-" if message.ocr_confidence is None else f"{message.ocr_confidence:.2f}",
                 message.time_source,

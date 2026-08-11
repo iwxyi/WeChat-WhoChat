@@ -151,6 +151,7 @@ class Message:
     partial: bool
     fingerprint: str
     source: str
+    sender_name: str = ""
 
 
 @dataclass(frozen=True)

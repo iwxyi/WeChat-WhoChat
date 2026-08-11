@@ -101,6 +101,26 @@ def main() -> int:
     if [item.text for item in overlay_text_messages] != ["我刚看到48条新消息"]:
         raise RuntimeError(f"normal bubble text should not be filtered by content alone: {overlay_text_messages}")
 
+    group_sender_result = OcrResult(
+        boxes=[
+            OcrTextBox("项目群(12)", Rect(430, 16, 540, 44), 0.9, OcrRegion.UNKNOWN, "verify"),
+            OcrTextBox("张三", Rect(462, 132, 508, 153), 0.86, OcrRegion.UNKNOWN, "verify"),
+            OcrTextBox("今天的方案可以发我吗？", Rect(462, 160, 762, 210), 0.88, OcrRegion.UNKNOWN, "verify"),
+            OcrTextBox("收到", Rect(462, 236, 530, 266), 0.88, OcrRegion.UNKNOWN, "verify"),
+            OcrTextBox("我整理后发群里。", Rect(840, 330, 1138, 380), 0.86, OcrRegion.UNKNOWN, "verify"),
+            OcrTextBox("输入一些内容", Rect(430, 674, 650, 710), 0.8, OcrRegion.UNKNOWN, "verify"),
+        ],
+        source_image="verify.png",
+        engine="verify",
+    )
+    group_messages = parse_visible_messages(group_sender_result, layout)
+    if [item.text for item in group_messages] != ["今天的方案可以发我吗？", "收到", "我整理后发群里。"]:
+        raise RuntimeError(f"group sender labels should not become messages: {group_messages}")
+    if group_messages[0].sender_name != "张三":
+        raise RuntimeError(f"group sender label should attach to next message: {group_messages[0]}")
+    if group_messages[1].sender_name is not None:
+        raise RuntimeError(f"common short reply should not be treated as a sender label: {group_messages[1]}")
+
     adapter_page = adapter.classify_page_with_ocr(window, layout, result)
     if adapter_page.page_type != PageType.CHAT_DM:
         raise RuntimeError("adapter did not use OCR page evidence")
