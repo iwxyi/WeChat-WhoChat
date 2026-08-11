@@ -605,6 +605,7 @@ class MainWindow(QMainWindow):
         self._page_titles: dict[str, str] = {}
         self._ai_status_value: QLabel | None = None
         self._ai_health_label: QLabel | None = None
+        self._ai_action_status: QLabel | None = None
         self._page_status_value: QLabel | None = None
         self._page_status_subtitle: QLabel | None = None
         self._capture_status_value: QLabel | None = None
@@ -1714,6 +1715,8 @@ class MainWindow(QMainWindow):
         provider.addItems(["OpenAI Compatible", "OpenAI", "Local Model", "Disabled"])
         provider.setCurrentText(self._config.ai.provider)
         base_url = QLineEdit(self._config.ai.base_url)
+        base_url.setPlaceholderText("例如：https://api.openai.com/v1")
+        base_url.setToolTip("推荐填到 /v1；如果填完整的 /v1/chat/completions，程序也会自动兼容。")
         model = QLineEdit(self._config.ai.model)
         api_key = QLineEdit()
         api_key.setText(self._config.ai.api_key)
@@ -1746,6 +1749,9 @@ class MainWindow(QMainWindow):
         health_label = QLabel(self._services.reply_generator.provider_health_summary())
         health_label.setObjectName("TinyMuted")
         self._ai_health_label = health_label
+        action_status = QLabel("未测试")
+        action_status.setObjectName("TinyMuted")
+        self._ai_action_status = action_status
         self._ai_provider = provider
         self._ai_base_url = base_url
         self._ai_model = model
@@ -1787,6 +1793,7 @@ class MainWindow(QMainWindow):
         save_ai.setObjectName("PrimaryButton")
         save_ai.clicked.connect(self._save_ai_settings)
         ai_actions.addWidget(save_ai)
+        ai_actions.addWidget(action_status)
         ai_actions.addStretch(1)
         ai.layout().addLayout(ai_actions)
         layout.addWidget(ai)
@@ -3179,6 +3186,7 @@ class MainWindow(QMainWindow):
         validation_error = self._settings_validation_error(parsed_targets)
         if validation_error:
             self.statusBar().showMessage(validation_error, 5000)
+            self._set_ai_action_status(validation_error)
             self.append_log(f"settings_save_failed: {validation_error}", "warning")
             return
         before = _redacted_config_snapshot(self._config)
@@ -3266,8 +3274,10 @@ class MainWindow(QMainWindow):
         )
         if secret_backend == "unavailable":
             self.statusBar().showMessage("AI 设置已保存，但密钥安全存储不可用", 4000)
+            self._set_ai_action_status("已保存，密钥安全存储不可用")
         else:
             self.statusBar().showMessage("AI 设置已保存", 3000)
+            self._set_ai_action_status("设置已保存")
 
     def _settings_validation_error(self, parsed_targets: list[TargetWindowConfig]) -> str:
         provider = self._ai_provider.currentText() if self._ai_provider else self._config.ai.provider
@@ -3340,6 +3350,8 @@ class MainWindow(QMainWindow):
         return result
 
     def _test_ai_settings(self) -> None:
+        self._set_ai_action_status("正在测试连接...")
+        QApplication.processEvents()
         config = replace(
             self._config,
             ai=replace(
@@ -3356,8 +3368,13 @@ class MainWindow(QMainWindow):
         result = test_ai_connection(config)
         level = "info" if result.ok else "warning"
         self.statusBar().showMessage(result.detail, 5000)
+        self._set_ai_action_status(result.detail)
         self.append_log(
             f"ai_settings_test_{'passed' if result.ok else 'failed'}: "
             f"provider={result.provider} status={result.status} elapsed_ms={result.elapsed_ms}",
             level,
         )
+
+    def _set_ai_action_status(self, text: str) -> None:
+        if self._ai_action_status is not None:
+            self._ai_action_status.setText(text)

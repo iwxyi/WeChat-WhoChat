@@ -39,7 +39,7 @@ def test_ai_connection(config: AppConfig) -> AIConnectionTestResult:
     if not config.ai.base_url.startswith(("http://", "https://")):
         return AIConnectionTestResult(False, "invalid_base_url", provider, "Base URL 需要以 http:// 或 https:// 开头")
 
-    endpoint = config.ai.base_url.rstrip("/") + "/chat/completions"
+    endpoint = _chat_completions_endpoint(config.ai.base_url)
     payload = {
         "model": config.ai.model,
         "temperature": 0,
@@ -140,7 +140,7 @@ def _generate_local_preview(context: ReplyContext, config: AppConfig) -> ReplyGe
 
 
 def _generate_openai_compatible(context: ReplyContext, config: AppConfig) -> ReplyGenerationResult:
-    endpoint = config.ai.base_url.rstrip("/") + "/chat/completions"
+    endpoint = _chat_completions_endpoint(config.ai.base_url)
     preview = build_prompt_preview(context, config)
     payload = {
         "model": config.ai.model,
@@ -218,6 +218,13 @@ def _clip(value: str, max_len: int) -> str:
 
 def _elapsed_ms(started: float) -> int:
     return int((time.monotonic() - started) * 1000)
+
+
+def _chat_completions_endpoint(base_url: str) -> str:
+    value = base_url.strip().rstrip("/")
+    if value.endswith("/chat/completions"):
+        return value
+    return value + "/chat/completions"
 
 
 def _log_ai_provider(endpoint: str, elapsed_ms: int, status: str, detail: str) -> None:

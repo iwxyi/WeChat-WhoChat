@@ -49,12 +49,13 @@ def main() -> int:
     config.ai.base_url = "https://api.example.test/v1"
     config.ai.model = "verify-model"
     config.ai.api_key = "sk-connection-test-secret-value"
-    calls = {"count": 0, "payload": "", "auth": "", "auths": []}
+    calls = {"count": 0, "payload": "", "auth": "", "auths": [], "urls": []}
     original_urlopen = generator_module.urllib.request.urlopen
 
     def fake_urlopen(request, timeout):
         calls["count"] += 1
         calls["payload"] = request.data.decode("utf-8")
+        calls["urls"].append(request.full_url)
         auth = request.get_header("Authorization", "") or dict(request.header_items()).get("Authorization", "")
         calls["auth"] = auth
         calls["auths"].append(auth)
@@ -82,6 +83,8 @@ def main() -> int:
         window._ai_model.setText("verify-model")
         window._ai_api_key.setText("sk-ui-connection-test-secret")
         window._test_ai_settings()
+        window._ai_base_url.setText("https://api.example.test/v1/chat/completions")
+        window._test_ai_settings()
         window.close()
         app.quit()
     finally:
@@ -93,8 +96,8 @@ def main() -> int:
         raise RuntimeError(f"expected connection test HTTP failure, got {failed}")
     if not local.ok or local.status != "local_preview":
         raise RuntimeError(f"expected local preview no-network success, got {local}")
-    if calls["count"] != 3:
-        raise RuntimeError(f"expected three network calls including UI test, got {calls['count']}")
+    if calls["count"] != 4:
+        raise RuntimeError(f"expected four network calls including UI tests, got {calls['count']}")
     auths = "\n".join(calls["auths"])
     if "sk-connection-test-secret-value" not in auths or "sk-ui-connection-test-secret" not in auths:
         raise RuntimeError(f"connection test did not send configured API keys: {calls['auths']}")
@@ -106,6 +109,10 @@ def main() -> int:
     for expected in ["connection_test_ok", "connection_test_http_error:401"]:
         if expected not in log_text:
             raise RuntimeError(f"missing diagnostic status {expected}: {log_text}")
+    if any(url.count("/chat/completions") != 1 for url in calls["urls"]):
+        raise RuntimeError(f"endpoint should not duplicate chat/completions: {calls['urls']}")
+    if window._ai_action_status is None or not window._ai_action_status.text():
+        raise RuntimeError("AI action status should show test feedback")
     print(f"calls={calls['count']} ok={ok.status} failed={failed.status} log_chars={len(log_text)}")
     return 0
 
