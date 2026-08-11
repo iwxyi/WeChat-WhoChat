@@ -41,6 +41,10 @@ def _window_step(runtime: RuntimeState) -> StatusStep:
         detail = f"{title}；{runtime.window.diagnostic}" if runtime.window.diagnostic else title
         return StatusStep("窗口", "通过", detail, "继续保持目标聊天窗口可见")
     if runtime.window.diagnostic:
+        if "不是当前前景窗口" in runtime.window.diagnostic:
+            return StatusStep("窗口", "阻断", runtime.window.diagnostic, "切到目标窗口前台，或在设置里关闭“仅采集当前前台目标窗口”用于测试")
+        if "后台测试模式" in runtime.window.diagnostic:
+            return StatusStep("窗口", "警告", runtime.window.diagnostic, "当前允许后台测试采集，但结果可能受遮挡影响")
         return StatusStep("窗口", "阻断", runtime.window.diagnostic, "打开目标聊天窗口，或在设置中补充进程名/标题规则")
     if runtime.window.state == WindowState.MINIMIZED:
         return StatusStep("窗口", "阻断", "目标窗口已最小化", "还原目标窗口后悬浮窗和采集会自动恢复")

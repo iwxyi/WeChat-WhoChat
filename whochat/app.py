@@ -37,9 +37,10 @@ def main() -> int:
         opacity_percent=config.floating.opacity_percent,
         suggestion_count=config.floating.suggestion_count,
     )
-    follower = TargetWindowFollowController(config.targets)
+    follower = TargetWindowFollowController(config.targets, foreground_only=config.capture.foreground_only)
     main_window.attach_floating_widget(floating)
     main_window.targets_changed.connect(follower.set_targets)
+    main_window.capture_mode_changed.connect(follower.set_foreground_only)
     follower.window_changed.connect(services.autocapture.on_window_changed)
     follower.window_changed.connect(lambda window: _sync_floating(floating, window))
     follower.status_changed.connect(main_window.append_log)

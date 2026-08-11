@@ -577,6 +577,7 @@ def _contact_display_label(contact: Contact) -> str:
 class MainWindow(QMainWindow):
     floating_visibility_changed = Signal(bool)
     targets_changed = Signal(object)
+    capture_mode_changed = Signal(bool)
 
     def __init__(self, services: AppServices | None = None) -> None:
         super().__init__()
@@ -647,6 +648,7 @@ class MainWindow(QMainWindow):
         self._capture_debounce_label: QLabel | None = None
         self._capture_ocr_interval: QSpinBox | None = None
         self._capture_auto_enabled: QCheckBox | None = None
+        self._capture_foreground_only: QCheckBox | None = None
         self._capture_pause_unknown: QCheckBox | None = None
         self._capture_block_unconfirmed: QCheckBox | None = None
         self._floating_placement: QComboBox | None = None
@@ -1822,6 +1824,10 @@ class MainWindow(QMainWindow):
         self._capture_auto_enabled = QCheckBox("自动跟随目标窗口采集")
         self._capture_auto_enabled.setChecked(self._config.capture.auto_capture_enabled)
         capture.layout().addWidget(self._capture_auto_enabled)
+        self._capture_foreground_only = QCheckBox("仅采集当前前台目标窗口")
+        self._capture_foreground_only.setChecked(self._config.capture.foreground_only)
+        self._capture_foreground_only.setToolTip("关闭后进入测试模式：允许采集后台未最小化目标窗口，但截图可能被其他窗口遮挡。")
+        capture.layout().addWidget(self._capture_foreground_only)
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(100, 3000)
         slider.setValue(self._config.capture.scroll_debounce_ms)
@@ -3131,6 +3137,7 @@ class MainWindow(QMainWindow):
         self._config.capture.scroll_debounce_ms = self._capture_debounce.value() if self._capture_debounce else 500
         self._config.capture.ocr_min_interval_ms = self._capture_ocr_interval.value() if self._capture_ocr_interval else 8000
         self._config.capture.auto_capture_enabled = self._capture_auto_enabled.isChecked() if self._capture_auto_enabled else True
+        self._config.capture.foreground_only = self._capture_foreground_only.isChecked() if self._capture_foreground_only else True
         self._config.capture.pause_ai_on_unknown_page = self._capture_pause_unknown.isChecked() if self._capture_pause_unknown else True
         self._config.capture.block_memory_for_unconfirmed_contact = (
             self._capture_block_unconfirmed.isChecked() if self._capture_block_unconfirmed else True
@@ -3140,6 +3147,7 @@ class MainWindow(QMainWindow):
         self._config.floating.suggestion_count = self._floating_suggestion_count.value() if self._floating_suggestion_count else 3
         self._config.targets = parsed_targets
         self._services.autocapture.set_enabled(self._config.capture.auto_capture_enabled)
+        self.capture_mode_changed.emit(self._config.capture.foreground_only)
         self._services.runtime.capture_gate.policy = replace(
             self._services.runtime.capture_gate.policy,
             scroll_debounce_ms=self._config.capture.scroll_debounce_ms,

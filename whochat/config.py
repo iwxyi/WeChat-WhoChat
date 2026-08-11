@@ -50,6 +50,7 @@ class OcrConfig:
 @dataclass
 class CaptureConfig:
     auto_capture_enabled: bool = False
+    foreground_only: bool = True
     scroll_debounce_ms: int = 900
     ocr_min_interval_ms: int = 30000
     pause_ai_on_unknown_page: bool = True

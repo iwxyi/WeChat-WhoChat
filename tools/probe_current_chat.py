@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,13 +26,17 @@ from whochat.services.pipeline import (
 
 
 def main() -> int:
+    _configure_stdout()
     args = _parse_args()
     if args.wait_seconds > 0:
         print(f"waiting={args.wait_seconds}s switch_to_target_window_now")
         time.sleep(args.wait_seconds)
     config = ConfigStore().load()
     targets = [target for target in config.targets if target.enabled] or default_target_windows()
-    windows = [window for window in find_target_windows(targets) if window.visible and window.foreground]
+    all_windows = find_target_windows(targets)
+    windows = [window for window in all_windows if window.visible and window.foreground]
+    if not windows and args.allow_background:
+        windows = [window for window in all_windows if not window.minimized]
     if not windows:
         foreground = foreground_window_handle()
         print("status=blocked")
@@ -40,7 +45,7 @@ def main() -> int:
         if foreground is None:
             print("window_api=desktop_api_unavailable_or_no_foreground")
         for item in diagnose_target_windows(targets, limit=12):
-            print(
+            _safe_print(
                 "candidate="
                 f"hwnd:{item.hwnd} foreground:{item.foreground} matched:{item.matched} "
                 f"target:{item.target_app or '-'} label:{item.app_label or '-'} "
@@ -49,6 +54,8 @@ def main() -> int:
         return 0
 
     window = max(windows, key=lambda item: (item.rect[2] - item.rect[0]) * (item.rect[3] - item.rect[1]))
+    if args.allow_background and not window.foreground:
+        window = replace(window, visible=True, foreground=True, diagnostic="background_probe_forced_foreground")
     adapter = WeChatAdapter()
     snapshot = adapter.window_snapshot(window)
     layout = adapter.estimate_layout(snapshot)
@@ -110,6 +117,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--use-gpu", action="store_true")
     parser.add_argument("--messages", action="store_true", help="Also OCR the content area and parse visible messages.")
     parser.add_argument("--redact", action="store_true", help="Do not print recognized title text.")
+    parser.add_argument("--allow-background", action="store_true", help="Probe a matched non-minimized target even when it is not foreground.")
     parser.add_argument("--wait-seconds", type=int, default=0, help="Wait before probing so you can focus a chat window.")
     return parser.parse_args()
 
@@ -134,6 +142,20 @@ def _minimal_result(window, image_path: Path, ocr_image_path: Path, crop_rect, l
 
 def _elapsed_ms(started: float) -> int:
     return int((time.monotonic() - started) * 1000)
+
+
+def _configure_stdout() -> None:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
+def _safe_print(value: str) -> None:
+    try:
+        print(value)
+    except UnicodeEncodeError:
+        print(value.encode("ascii", errors="replace").decode("ascii"))
 
 
 if __name__ == "__main__":
