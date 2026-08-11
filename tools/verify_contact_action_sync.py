@@ -78,8 +78,19 @@ def main() -> int:
     result = window._build_reply_result()
     if result.allowed or "手动回复保护" not in result.status:
         raise RuntimeError(f"manual protection should block copyable replies: {result}")
+    window._render_reply_suggestions(result)
     if "手动回复保护" not in floating.contact_label.text():
         raise RuntimeError(f"floating group did not refresh manual protection: {floating.contact_label.text()}")
+
+    window._select_page("settings")
+    window._ai_provider.setCurrentText("Local Model")
+    window._ai_model.setText("local-resume")
+    window._ai_api_key.setText("")
+    window._privacy_manual_blocks.setChecked(False)
+    window._save_ai_settings()
+    _wait_for(app, lambda: window._suggestion_result is not None and window._suggestion_result.allowed, "resume reply task")
+    if window._suggestion_result is None or not window._suggestion_result.allowed:
+        raise RuntimeError(f"unblocked manual protection should resume suggestions: {window._suggestion_result}")
 
     print(f"contact={protected.display_name} status={protected.status.value} strategy={protected.strategy_id}")
     floating.close()
@@ -87,6 +98,14 @@ def main() -> int:
     services.shutdown()
     app.quit()
     return 0
+
+
+def _wait_for(app, predicate, label: str, loops: int = 80) -> None:
+    for _ in range(loops):
+        app.processEvents()
+        if predicate():
+            return
+    raise RuntimeError(f"timeout waiting for {label}")
 
 
 if __name__ == "__main__":

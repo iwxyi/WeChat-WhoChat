@@ -1378,6 +1378,38 @@ class MainWindow(QMainWindow):
         if self._runtime_text is not None:
             self._runtime_text.setText(self._format_runtime_state(self._services.runtime.state))
 
+    def _resume_reply_flow_if_unblocked(self, reason: str) -> None:
+        previous = self._suggestion_result
+        was_blocked = previous is not None and not previous.allowed and not previous.status.startswith("reply_pending")
+        if self._services.reply_tasks.is_running:
+            self.append_log(f"reply_flow_resume_skipped: running reason={reason}")
+            self._refresh_overview_data()
+            return
+        context = self._build_reply_context()
+        steps = build_status_chain(
+            runtime=context.runtime,
+            contact=context.contact,
+            strategy=context.strategy,
+            config=self._config,
+            reply_running=False,
+            provider_health=self._services.reply_generator.provider_health_summary(),
+        )
+        ai_step = next((step for step in steps if step.stage == "AI"), steps[-1])
+        if ai_step.state == "就绪":
+            if was_blocked:
+                self.append_log(f"reply_flow_resuming: reason={reason}")
+                QTimer.singleShot(0, self._refresh_reply_suggestions)
+            else:
+                self.append_log(f"reply_flow_ready: reason={reason}")
+                self._refresh_overview_data()
+            return
+        if was_blocked:
+            self._render_reply_suggestions(
+                ReplyGenerationResult(False, f"blocked:{ai_step.reason}", [], self._config.ai.provider)
+            )
+        self.append_log(f"reply_flow_still_blocked: reason={reason} block={ai_step.reason}")
+        self._refresh_overview_data()
+
     def _requires_cloud_prompt_review(self, context: ReplyContext) -> bool:
         return (
             self._config.privacy.require_cloud_prompt_review
@@ -2566,6 +2598,7 @@ class MainWindow(QMainWindow):
         self._show_updated_contact(updated)
         self.append_log(f"contact_status_updated: {updated.id} -> {status.value}")
         self.statusBar().showMessage(f"聊天对象已更新为：{status.value}", 2500)
+        self._resume_reply_flow_if_unblocked("contact_status")
 
     def _protect_selected_contact(self) -> None:
         contact = self._current_contact()
@@ -2576,6 +2609,7 @@ class MainWindow(QMainWindow):
         self._show_updated_contact(updated)
         self.append_log(f"contact_manual_protect_enabled: {updated.id}")
         self.statusBar().showMessage("已进入手动回复保护", 2500)
+        self._resume_reply_flow_if_unblocked("manual_protect")
 
     def _toggle_selected_contact_cloud_ai(self, checked: bool) -> None:
         contact = self._current_contact()
@@ -2587,6 +2621,7 @@ class MainWindow(QMainWindow):
         self._show_updated_contact(updated)
         self.append_log(f"contact_cloud_ai_updated: {updated.id} -> {updated.allow_cloud_ai}")
         self.statusBar().showMessage(f"AI 回复已{'开启' if updated.allow_cloud_ai else '关闭'}", 2500)
+        self._resume_reply_flow_if_unblocked("contact_cloud_ai")
 
     def _sync_contact_ai_toggle(self, contact: Contact | None) -> None:
         if self._contact_ai_toggle is None:
@@ -2660,6 +2695,7 @@ class MainWindow(QMainWindow):
         )
         self._show_updated_contact(updated)
         self.append_log(f"contact_profile_updated: {updated.id}")
+        self._resume_reply_flow_if_unblocked("contact_profile")
 
     def _add_alias_to_selected_contact(self) -> None:
         contact = self._current_contact()
@@ -3286,6 +3322,7 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage("AI 设置已保存", 3000)
             self._set_ai_action_status("设置已保存")
+        self._resume_reply_flow_if_unblocked("settings_saved")
 
     def _settings_validation_error(self, parsed_targets: list[TargetWindowConfig]) -> str:
         provider = self._ai_provider.currentText() if self._ai_provider else self._config.ai.provider
@@ -3318,6 +3355,7 @@ class MainWindow(QMainWindow):
         )
         self.append_log(f"ai_provider_health_reset: {summary}", "warning")
         self.statusBar().showMessage("AI Provider 健康状态已恢复", 3000)
+        self._resume_reply_flow_if_unblocked("provider_health_reset")
 
     def _sync_retention_config_from_ui(self) -> None:
         self._config.privacy.diagnostic_log_retention_days = self._privacy_log_retention.value() if self._privacy_log_retention else 14
