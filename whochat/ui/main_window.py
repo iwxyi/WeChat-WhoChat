@@ -622,6 +622,7 @@ class MainWindow(QMainWindow):
         self._contact_chat_text: QTextEdit | None = None
         self._contact_memory_text: QTextEdit | None = None
         self._contact_feedback_text: QTextEdit | None = None
+        self._contact_ai_toggle: QPushButton | None = None
         self._overview_status_summary: QLabel | None = None
         self._overview_next_action: QLabel | None = None
         self._overview_next_action_meta: QLabel | None = None
@@ -1559,31 +1560,49 @@ class MainWindow(QMainWindow):
         actions = QGridLayout()
         actions.setSpacing(6)
         confirm = QPushButton("确认")
+        confirm.setToolTip("把自动识别到的聊天对象标记为已确认；已确认对象更适合长期画像和回复建议。")
         confirm.clicked.connect(lambda: self._update_selected_contact_status(ContactStatus.CONFIRMED))
         edit = QPushButton("编辑")
+        edit.setToolTip("修改显示名称、分组策略、云端 AI 授权和备注。")
         edit.clicked.connect(self._edit_selected_contact_profile)
         alias = QPushButton("别名")
+        alias.setToolTip("给当前聊天对象增加别名；用于昵称变化或 OCR 识别到不同写法时继续归到同一对象。")
         alias.clicked.connect(self._add_alias_to_selected_contact)
         merge = QPushButton("合并")
+        merge.setToolTip("把当前聊天对象合并到另一个对象；适合重复识别或同一个人有多个窗口对象的情况。")
         merge.clicked.connect(self._merge_selected_contact)
         link_identity = QPushButton("链接身份")
+        link_identity.setToolTip("把当前平台聊天对象链接到一个真实身份；例如 微信·小红 和 QQ·大红 可以链接为同一个人。")
         link_identity.clicked.connect(self._link_selected_contact_identity)
         new_identity = QPushButton("新建身份")
+        new_identity.setToolTip("为当前聊天对象创建一个真实身份；身份用于跨应用合并同一个人。")
         new_identity.clicked.connect(self._create_identity_for_selected_contact)
         person_alias = QPushButton("身份别名")
+        person_alias.setToolTip("给已链接的真实身份增加别名；适合一个人使用多个昵称的情况。")
         person_alias.clicked.connect(self._add_alias_to_selected_person)
         add_member = QPushButton("添加成员")
+        add_member.setToolTip("给群聊手动添加群成员候选；仅群聊有意义。")
         add_member.clicked.connect(self._add_member_to_selected_group)
         member_identity = QPushButton("成员身份")
+        member_identity.setToolTip("把选中的群成员昵称链接到真实身份；用于识别群里具体是谁在说话。")
         member_identity.clicked.connect(self._link_selected_group_member_identity)
         member_contact = QPushButton("成员对象")
+        member_contact.setToolTip("把群成员昵称链接到已有私聊对象；适合群成员和好友列表中的同一人重叠。")
         member_contact.clicked.connect(self._link_selected_group_member_contact)
         protect = QPushButton("保护")
+        protect.setToolTip("把当前聊天对象切到手动回复保护分组；用于亲友或敏感关系，避免 AI 代替你处理感情。")
         protect.clicked.connect(self._protect_selected_contact)
         export = QPushButton("导出")
+        export.setToolTip("导出当前聊天对象的数据摘要，便于备份或排查。")
         export.clicked.connect(self._export_selected_contact_data)
         clear = QPushButton("清空")
+        clear.setToolTip("清空当前聊天对象的聊天记录、记忆、AI 审计和反馈；不会删除对象本身。")
         clear.clicked.connect(self._clear_selected_contact_data)
+        ai_toggle = QPushButton("AI关")
+        ai_toggle.setCheckable(True)
+        ai_toggle.setToolTip("开启后，此聊天对象允许使用已配置的云端 AI 回复；关闭时只允许本地建议。")
+        ai_toggle.clicked.connect(self._toggle_selected_contact_cloud_ai)
+        self._contact_ai_toggle = ai_toggle
         buttons = [
             confirm,
             edit,
@@ -1598,6 +1617,7 @@ class MainWindow(QMainWindow):
             protect,
             export,
             clear,
+            ai_toggle,
         ]
         for index, button in enumerate(buttons):
             actions.addWidget(button, index // 7, index % 7)
@@ -1606,6 +1626,8 @@ class MainWindow(QMainWindow):
         contact_list.currentItemChanged.connect(self._on_contact_selected)
         if contacts:
             contact_list.setCurrentRow(0)
+        else:
+            self._sync_contact_ai_toggle(None)
         return self._build_page_shell(splitter)
 
     def _reload_contact_list(self, select_contact_id: str | None = None) -> list[Contact]:
@@ -2442,6 +2464,7 @@ class MainWindow(QMainWindow):
             self._contact_memory_text.setText(memory_text)
         if self._contact_feedback_text:
             self._contact_feedback_text.setText(self._format_contact_feedback_detail(contact))
+        self._sync_contact_ai_toggle(contact)
         self._refresh_overview_data()
 
     def _show_updated_contact(self, contact: Contact) -> None:
@@ -2538,6 +2561,33 @@ class MainWindow(QMainWindow):
         self._show_updated_contact(updated)
         self.append_log(f"contact_manual_protect_enabled: {updated.id}")
         self.statusBar().showMessage("已进入手动回复保护", 2500)
+
+    def _toggle_selected_contact_cloud_ai(self, checked: bool) -> None:
+        contact = self._current_contact()
+        if contact is None:
+            self._sync_contact_ai_toggle(None)
+            self.statusBar().showMessage("请先选择聊天对象", 2500)
+            return
+        updated = self._services.contacts.update_profile(contact.id, allow_cloud_ai=checked)
+        self._show_updated_contact(updated)
+        self.append_log(f"contact_cloud_ai_updated: {updated.id} -> {updated.allow_cloud_ai}")
+        self.statusBar().showMessage(f"AI 回复已{'开启' if updated.allow_cloud_ai else '关闭'}", 2500)
+
+    def _sync_contact_ai_toggle(self, contact: Contact | None) -> None:
+        if self._contact_ai_toggle is None:
+            return
+        self._contact_ai_toggle.blockSignals(True)
+        enabled = contact is not None
+        checked = bool(contact and contact.allow_cloud_ai)
+        self._contact_ai_toggle.setEnabled(enabled)
+        self._contact_ai_toggle.setChecked(checked)
+        self._contact_ai_toggle.setText("AI开" if checked else "AI关")
+        self._contact_ai_toggle.setToolTip(
+            "已允许此聊天对象使用云端 AI 回复。"
+            if checked
+            else "开启后，此聊天对象允许使用已配置的云端 AI 回复。"
+        )
+        self._contact_ai_toggle.blockSignals(False)
 
     def _edit_selected_contact_profile(self) -> None:
         contact = self._current_contact()
