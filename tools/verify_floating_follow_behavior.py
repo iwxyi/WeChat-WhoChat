@@ -52,6 +52,24 @@ def main() -> int:
     )
     if "#floatingroot" not in floating.root.styleSheet().lower():
         raise RuntimeError("floating widget should apply sampled window color stylesheet")
+    floating.apply_window_color((0, 0, 0))
+    if "#000000" not in floating.root.styleSheet().lower():
+        raise RuntimeError(f"dark sampled color should remain dark, got {floating.root.styleSheet()}")
+    background = WindowInfo(
+        hwnd=67,
+        title="微信",
+        process_name="Weixin.exe",
+        rect=(100, 100, 900, 720),
+        visible=True,
+        target_app="wechat",
+        app_label="微信",
+        foreground=False,
+        diagnostic="目标窗口不是当前前景窗口；屏幕截图会被上层窗口遮挡，已暂停采集",
+    )
+    floating.show_waiting()
+    _sync_floating(floating, background, color_sampler=lambda _rect: (0, 0, 0))
+    if floating.isVisible():
+        raise RuntimeError("background target should hide floating widget before color sampling")
 
     floating.hide_by_user()
     floating.attach_to_window_rect((120, 120, 920, 740), "微信")

@@ -213,10 +213,11 @@ class FloatingWidget(QWidget):
             self.root.setStyleSheet("")
             return
         base = QColor(*rgb)
-        bg = _blend(base, QColor("#ffffff"), 0.72)
-        border = _blend(base, QColor("#52606d"), 0.58)
-        button_bg = _blend(base, QColor("#ffffff"), 0.84)
-        hover_bg = _blend(base, QColor("#ffffff"), 0.70)
+        dark = _luminance(base) < 0.42
+        bg = _blend(base, QColor("#000000"), 0.10) if dark else _blend(base, QColor("#ffffff"), 0.18)
+        border = _blend(base, QColor("#ffffff" if dark else "#52606d"), 0.32)
+        button_bg = _blend(base, QColor("#ffffff" if dark else "#ffffff"), 0.18 if dark else 0.42)
+        hover_bg = _blend(base, QColor("#ffffff" if dark else "#ffffff"), 0.26 if dark else 0.30)
         accent = _readable_accent(base)
         text = "#ffffff" if _luminance(bg) < 0.45 else "#102a43"
         muted = "#e5e7eb" if _luminance(bg) < 0.45 else "#52606d"

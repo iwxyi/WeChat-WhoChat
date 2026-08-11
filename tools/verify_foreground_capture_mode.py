@@ -39,7 +39,7 @@ def main() -> int:
     if strict is not None:
         raise RuntimeError(f"strict foreground mode should ignore background target: {strict}")
     relaxed = _select_window([background], focused=2002, foreground_only=False)
-    if relaxed is None or not relaxed.visible or not relaxed.foreground or "后台测试模式" not in relaxed.diagnostic:
+    if relaxed is None or not relaxed.visible or relaxed.foreground or "后台测试模式" not in relaxed.diagnostic:
         raise RuntimeError(f"relaxed foreground mode should return background test window: {relaxed}")
     print(f"strict={strict} relaxed={relaxed.hwnd} diagnostic={relaxed.diagnostic}")
     return 0

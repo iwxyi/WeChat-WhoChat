@@ -63,7 +63,7 @@ def _sync_floating(
     if window is None:
         floating.hide_for_window_state("未发现已启用的聊天窗口")
         return
-    if getattr(window, "minimized", False) or not getattr(window, "visible", True):
+    if getattr(window, "minimized", False) or not getattr(window, "visible", True) or not getattr(window, "foreground", True):
         floating.hide_for_window_state(getattr(window, "diagnostic", "") or "目标窗口不可见")
         return
     if hasattr(floating, "apply_window_color"):
