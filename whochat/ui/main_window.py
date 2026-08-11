@@ -1841,8 +1841,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(ocr)
 
         capture = self._panel("采集与防抖", "控制 OCR 和 AI 请求频率，避免滚动时产生大量请求。")
-        self._capture_auto_enabled = QCheckBox("自动跟随目标窗口采集")
+        self._capture_auto_enabled = QCheckBox("自动 OCR 采集")
         self._capture_auto_enabled.setChecked(self._config.capture.auto_capture_enabled)
+        self._capture_auto_enabled.setToolTip("开启后，目标窗口命中并稳定时会自动截图、OCR 并确认聊天页。")
         capture.layout().addWidget(self._capture_auto_enabled)
         self._capture_foreground_only = QCheckBox("仅采集当前前台目标窗口")
         self._capture_foreground_only.setChecked(self._config.capture.foreground_only)

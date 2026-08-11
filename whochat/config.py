@@ -49,7 +49,7 @@ class OcrConfig:
 
 @dataclass
 class CaptureConfig:
-    auto_capture_enabled: bool = False
+    auto_capture_enabled: bool = True
     foreground_only: bool = True
     scroll_debounce_ms: int = 900
     ocr_min_interval_ms: int = 30000
@@ -96,11 +96,12 @@ class ConfigStore:
             config.ai.api_key = self.secrets.get(AI_API_KEY_NAME)
             return config
         data = json.loads(self.path.read_text(encoding="utf-8"))
+        capture_data = _migrate_capture_config(data.get("capture", {}))
         config = AppConfig(
             ai=AIProviderConfig(**data.get("ai", {})),
             privacy=PrivacyConfig(**data.get("privacy", {})),
             ocr=OcrConfig(**data.get("ocr", {})),
-            capture=CaptureConfig(**data.get("capture", {})),
+            capture=CaptureConfig(**capture_data),
             floating=FloatingConfig(**data.get("floating", {})),
             targets=_load_targets(data.get("targets")),
         )
@@ -121,6 +122,19 @@ class ConfigStore:
 
 def default_config_path() -> Path:
     return config_dir() / "config.json"
+
+
+def _migrate_capture_config(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    migrated = dict(value)
+    if "foreground_only" not in migrated:
+        migrated["foreground_only"] = True
+    if "ocr_min_interval_ms" not in migrated:
+        migrated["ocr_min_interval_ms"] = CaptureConfig.ocr_min_interval_ms
+    if "auto_capture_enabled" in migrated and migrated["auto_capture_enabled"] is False and "foreground_only" not in value:
+        migrated["auto_capture_enabled"] = True
+    return migrated
 
 
 def default_target_windows() -> list[TargetWindowConfig]:
