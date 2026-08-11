@@ -41,6 +41,8 @@ def main() -> int:
 
     window = MainWindow(services)
     floating = FloatingWidget()
+    calibration_requests = []
+    floating.calibration_requested.connect(lambda: calibration_requests.append(True))
     window.attach_floating_widget(floating)
     window._sync_floating_content(contact=contact, strategy=strategy)
     if floating.contact_label.text() != "微信·悬浮验证对象（默认）":
@@ -49,6 +51,11 @@ def main() -> int:
         raise RuntimeError(f"floating group mismatch: {floating.group_label.text()}")
     if "聊天页" not in floating.status_label.toolTip() and "生成" not in floating.status_label.toolTip():
         raise RuntimeError(f"floating status tooltip should carry action guidance: {floating.status_label.toolTip()}")
+    if floating.action_button.isHidden():
+        raise RuntimeError("floating should show direct calibration action when page is blocked")
+    QTest.mouseClick(floating.action_button, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, floating.action_button.rect().center())
+    if not calibration_requests:
+        raise RuntimeError("floating calibration action did not emit calibration_requested")
 
     services.runtime.update_from_window_info(
         WindowInfo(hwnd=991, title="微信", process_name="Weixin", rect=(0, 0, 1200, 800), visible=True)

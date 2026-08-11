@@ -21,6 +21,7 @@ class Placement:
 class FloatingWidget(QWidget):
     suggestion_copied = Signal(str)
     user_hidden_changed = Signal(bool)
+    calibration_requested = Signal()
 
     GAP = 6
     MIN_WIDTH = 520
@@ -61,6 +62,12 @@ class FloatingWidget(QWidget):
         self.status_label = QLabel("等待")
         self.status_label.setObjectName("FloatingStatus")
         self.status_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self.action_button = QPushButton("校准")
+        self.action_button.setObjectName("FloatingGhostButton")
+        self.action_button.setToolTip("打开区域校准")
+        self.action_button.setFixedHeight(26)
+        self.action_button.setVisible(False)
+        self.action_button.clicked.connect(self.calibration_requested.emit)
         hide_button = QPushButton("×")
         hide_button.setObjectName("FloatingGhostButton")
         hide_button.setToolTip("隐藏悬浮窗")
@@ -70,6 +77,7 @@ class FloatingWidget(QWidget):
         shell.addWidget(self.contact_label)
         shell.addWidget(self.group_label)
         shell.addWidget(self.status_label)
+        shell.addWidget(self.action_button)
         shell.addStretch(1)
         self._set_suggestions(
             [
@@ -120,6 +128,7 @@ class FloatingWidget(QWidget):
         self.group_label.setText(group_name or "默认分组")
         self.status_label.setText(status or "等待")
         self.status_label.setToolTip(action or status or "等待")
+        self._sync_action_button(status=status, action=action)
 
     def update_reply_result(self, result: ReplyGenerationResult) -> None:
         if result.status.startswith("reply_pending"):
@@ -143,6 +152,7 @@ class FloatingWidget(QWidget):
         self.contact_label.setText("微信·未确认联系人（默认分组）")
         self.group_label.setText("默认分组")
         self.status_label.setText("等待微信")
+        self.action_button.setVisible(False)
         self._place_on_primary_screen()
         self.show()
 
@@ -184,6 +194,7 @@ class FloatingWidget(QWidget):
         self.contact_label.setText("未确认联系人")
         self.group_label.setText("默认分组")
         self.status_label.setText(reason)
+        self.action_button.setVisible(False)
         if not self._user_hidden and not self.isVisible():
             self.show()
 
@@ -193,8 +204,14 @@ class FloatingWidget(QWidget):
         self.contact_label.setText("未确认联系人")
         self.group_label.setText("默认分组")
         self.status_label.setText(reason)
+        self.action_button.setVisible(False)
         if not self._user_hidden:
             self.hide()
+
+    def _sync_action_button(self, *, status: str, action: str) -> None:
+        text = f"{status} {action}"
+        should_calibrate = "校准" in text or "区域" in text
+        self.action_button.setVisible(should_calibrate)
 
     def _set_suggestions(self, suggestions: list[tuple[str, str]]) -> None:
         self.suggestion_buttons = [self._suggestion_button(label, text) for label, text in suggestions[:3]]

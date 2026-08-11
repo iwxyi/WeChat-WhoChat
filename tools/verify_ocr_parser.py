@@ -42,6 +42,19 @@ def main() -> int:
     if page.page_type != PageType.CHAT_DM or not page.can_generate_reply:
         raise RuntimeError(f"OCR page classification failed: {page}")
 
+    no_input_result = OcrResult(
+        boxes=[
+            OcrTextBox("联系人 A", Rect(430, 16, 520, 44), 0.9, OcrRegion.UNKNOWN, "verify"),
+            OcrTextBox("下午前能确认吗？", Rect(460, 138, 740, 188), 0.88, OcrRegion.UNKNOWN, "verify"),
+            OcrTextBox("我看一下后回复你。", Rect(820, 236, 1138, 286), 0.86, OcrRegion.UNKNOWN, "verify"),
+        ],
+        source_image="verify.png",
+        engine="verify",
+    )
+    no_input_page = classify_page_from_ocr(no_input_result, layout)
+    if no_input_page.page_type != PageType.CHAT_DM or not no_input_page.can_generate_reply:
+        raise RuntimeError(f"OCR page classification should tolerate empty input area: {no_input_page}")
+
     messages = parse_visible_messages(result, layout)
     if len(messages) != 2:
         raise RuntimeError(f"expected 2 parsed messages, got {len(messages)}")
@@ -57,7 +70,7 @@ def main() -> int:
     if len(preview_messages) < 2:
         raise RuntimeError("preview engine did not produce message candidates")
 
-    print(f"page={page.page_type.value} confidence={page.confidence:.2f}")
+    print(f"page={page.page_type.value} confidence={page.confidence:.2f} no_input={no_input_page.confidence:.2f}")
     print(f"messages={[(item.speaker.value, item.text, item.confidence) for item in messages]}")
     print(f"adapter_page={adapter_page.page_type.value}")
     return 0

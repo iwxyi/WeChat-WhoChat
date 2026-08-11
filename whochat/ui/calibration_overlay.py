@@ -26,6 +26,8 @@ REGION_COLORS = {
     "input": QColor(220, 38, 38, 76),
 }
 
+HANDLE_MARGIN = 8
+
 
 class CalibrationCanvas(QWidget):
     layout_changed = Signal(object)
@@ -36,6 +38,7 @@ class CalibrationCanvas(QWidget):
         self._screenshot = screenshot
         self._ocr_result: OcrResult | None = None
         self._drag_region: str | None = None
+        self._drag_mode: str = "move"
         self._drag_start: QPoint | None = None
         self._drag_start_rect: Rect | None = None
         self.setMinimumSize(760, 430)
@@ -74,6 +77,7 @@ class CalibrationCanvas(QWidget):
             pen = QPen(REGION_COLORS[key].darker(160), 2)
             painter.setPen(pen)
             painter.drawRect(screen_rect)
+            self._paint_handles(painter, screen_rect, REGION_COLORS[key].darker(170))
             painter.setFont(QFont(painter.font().family(), 9, QFont.Weight.Bold))
             painter.setPen(QColor("#102a43"))
             label_rect = QRect(screen_rect.left() + 6, screen_rect.top() + 5, max(60, screen_rect.width() - 12), 20)
@@ -86,38 +90,62 @@ class CalibrationCanvas(QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             return
         canvas = self._canvas_rect()
+        point = event.position().toPoint()
         for key, source_rect in reversed(list(self._region_rects().items())):
-            if self._to_canvas_rect(source_rect, canvas).contains(event.position().toPoint()):
+            screen_rect = self._to_canvas_rect(source_rect, canvas)
+            mode = _hit_mode(screen_rect, point)
+            if mode:
                 self._drag_region = key
+                self._drag_mode = mode
                 self._drag_start = event.position().toPoint()
                 self._drag_start_rect = source_rect
-                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+                self.setCursor(_cursor_for_mode(mode))
                 return
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if not self._drag_region or self._drag_start is None or self._drag_start_rect is None:
+            self._update_hover_cursor(event.position().toPoint())
             return
         canvas = self._canvas_rect()
         delta = event.position().toPoint() - self._drag_start
         window = self._layout.window_rect
         dx = round(delta.x() / max(1, canvas.width()) * window.width)
         dy = round(delta.y() / max(1, canvas.height()) * window.height)
-        moved = _clamp_rect(
-            Rect(
-                self._drag_start_rect.left + dx,
-                self._drag_start_rect.top + dy,
-                self._drag_start_rect.right + dx,
-                self._drag_start_rect.bottom + dy,
-            ),
-            window,
-        )
-        self.set_layout_regions(_replace_region(self._layout, self._drag_region, moved))
+        adjusted = _adjust_rect(self._drag_start_rect, self._drag_mode, dx, dy, window)
+        self.set_layout_regions(_replace_region(self._layout, self._drag_region, adjusted))
 
     def mouseReleaseEvent(self, _event: QMouseEvent) -> None:
         self._drag_region = None
+        self._drag_mode = "move"
         self._drag_start = None
         self._drag_start_rect = None
         self.setCursor(Qt.CursorShape.ArrowCursor)
+
+    def _update_hover_cursor(self, point: QPoint) -> None:
+        canvas = self._canvas_rect()
+        for source_rect in reversed(list(self._region_rects().values())):
+            mode = _hit_mode(self._to_canvas_rect(source_rect, canvas), point)
+            if mode:
+                self.setCursor(_cursor_for_mode(mode))
+                return
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+
+    def _paint_handles(self, painter: QPainter, rect: QRect, color: QColor) -> None:
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        size = 6
+        points = [
+            rect.topLeft(),
+            QPoint(rect.center().x(), rect.top()),
+            rect.topRight(),
+            QPoint(rect.left(), rect.center().y()),
+            QPoint(rect.right(), rect.center().y()),
+            rect.bottomLeft(),
+            QPoint(rect.center().x(), rect.bottom()),
+            rect.bottomRight(),
+        ]
+        for point in points:
+            painter.drawRect(QRect(point.x() - size // 2, point.y() - size // 2, size, size))
 
     def _canvas_rect(self) -> QRect:
         margin = 14
@@ -188,3 +216,59 @@ def _clamp_rect(rect: Rect, window: Rect) -> Rect:
     left = max(window.left, min(rect.left, window.right - width))
     top = max(window.top, min(rect.top, window.bottom - height))
     return Rect(left, top, left + width, top + height)
+
+
+def _resize_rect(rect: Rect, window: Rect) -> Rect:
+    left = max(window.left, min(rect.left, window.right - 20))
+    top = max(window.top, min(rect.top, window.bottom - 20))
+    right = min(window.right, max(rect.right, left + 20))
+    bottom = min(window.bottom, max(rect.bottom, top + 20))
+    return Rect(left, top, right, bottom)
+
+
+def _adjust_rect(rect: Rect, mode: str, dx: int, dy: int, window: Rect) -> Rect:
+    if mode == "move":
+        return _clamp_rect(Rect(rect.left + dx, rect.top + dy, rect.right + dx, rect.bottom + dy), window)
+    left = rect.left + dx if "left" in mode else rect.left
+    right = rect.right + dx if "right" in mode else rect.right
+    top = rect.top + dy if "top" in mode else rect.top
+    bottom = rect.bottom + dy if "bottom" in mode else rect.bottom
+    return _resize_rect(Rect(left, top, right, bottom), window)
+
+
+def _hit_mode(rect: QRect, point: QPoint) -> str:
+    if not rect.adjusted(-HANDLE_MARGIN, -HANDLE_MARGIN, HANDLE_MARGIN, HANDLE_MARGIN).contains(point):
+        return ""
+    left = abs(point.x() - rect.left()) <= HANDLE_MARGIN
+    right = abs(point.x() - rect.right()) <= HANDLE_MARGIN
+    top = abs(point.y() - rect.top()) <= HANDLE_MARGIN
+    bottom = abs(point.y() - rect.bottom()) <= HANDLE_MARGIN
+    if top and left:
+        return "top_left"
+    if top and right:
+        return "top_right"
+    if bottom and left:
+        return "bottom_left"
+    if bottom and right:
+        return "bottom_right"
+    if left:
+        return "left"
+    if right:
+        return "right"
+    if top:
+        return "top"
+    if bottom:
+        return "bottom"
+    return "move" if rect.contains(point) else ""
+
+
+def _cursor_for_mode(mode: str) -> Qt.CursorShape:
+    if mode in {"left", "right"}:
+        return Qt.CursorShape.SizeHorCursor
+    if mode in {"top", "bottom"}:
+        return Qt.CursorShape.SizeVerCursor
+    if mode in {"top_left", "bottom_right"}:
+        return Qt.CursorShape.SizeFDiagCursor
+    if mode in {"top_right", "bottom_left"}:
+        return Qt.CursorShape.SizeBDiagCursor
+    return Qt.CursorShape.ClosedHandCursor

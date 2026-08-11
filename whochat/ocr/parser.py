@@ -45,6 +45,21 @@ def classify_page_from_ocr(result: OcrResult, layout: LayoutRegions) -> PageClas
             f"OCR 证据包含标题、输入区和 {len(message_boxes)} 个消息候选"
             + ("；标题呈现群聊特征" if group_title else ""),
         )
+    if len(message_boxes) >= 2 and title_boxes:
+        confidence = min(0.72, 0.54 + len(message_boxes) * 0.05 + len(title_boxes) * 0.03)
+        page_type = PageType.CHAT_GROUP if group_title else PageType.CHAT_DM
+        return PageClassification(
+            page_type,
+            confidence,
+            f"OCR 证据包含标题和 {len(message_boxes)} 个消息候选；输入区未识别到文字但不阻断聊天页判断"
+            + ("；标题呈现群聊特征" if group_title else ""),
+        )
+    if len(message_boxes) >= 3 and input_boxes:
+        return PageClassification(
+            PageType.CHAT_DM,
+            0.67,
+            f"OCR 证据包含输入区和 {len(message_boxes)} 个消息候选；标题漏检，按私聊候选处理",
+        )
     if len(message_boxes) >= 2 and (input_boxes or title_boxes):
         return PageClassification(
             PageType.UNKNOWN,
@@ -78,7 +93,11 @@ def _classify_non_chat_page(
     article_markers = ("阅读全文", "原文链接", "作者", "发布于", "阅读量", "赞", "在看", "分享")
     if len(body_text) >= 80 and _contains_any(body_text, article_markers):
         return PageClassification(PageType.NEWS_ARTICLE, 0.70, "OCR 呈现文章页正文和操作特征，阻断聊天回复")
-    if _contains_any(combined, ("搜索指定内容", "搜索聊天记录", "联系人", "群聊", "聊天记录")) and not input_boxes:
+    if (
+        not message_boxes
+        and _contains_any(combined, ("搜索指定内容", "搜索聊天记录", "联系人", "群聊", "聊天记录"))
+        and not input_boxes
+    ):
         return PageClassification(PageType.SEARCH, 0.60, "OCR 呈现搜索或列表页特征，阻断聊天回复")
     return None
 

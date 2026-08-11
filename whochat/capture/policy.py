@@ -16,6 +16,7 @@ class CaptureGate:
     last_capture_ms: int = 0
     last_hash: str | None = None
     last_rect: tuple[int, int, int, int] | None = None
+    last_rect_size: tuple[int, int] | None = None
 
     def evaluate(self, state: RuntimeState, image_path: Path | None = None) -> CaptureDecision:
         if state.paused:
@@ -33,7 +34,8 @@ class CaptureGate:
             return CaptureDecision(False, "截图节流中", elapsed_ms=elapsed)
 
         rect = state.layout.message_rect.as_tuple()
-        if self.last_rect and self.last_rect != rect and elapsed is not None and elapsed < self.policy.window_stable_delay_ms:
+        rect_size = _rect_size(rect)
+        if self.last_rect_size and self.last_rect_size != rect_size and elapsed is not None and elapsed < self.policy.window_stable_delay_ms:
             return CaptureDecision(False, "窗口区域刚变化，等待稳定", elapsed_ms=elapsed)
 
         snapshot_hash = image_hash(image_path) if image_path else None
@@ -44,9 +46,15 @@ class CaptureGate:
 
         self.last_capture_ms = now_ms
         self.last_rect = rect
+        self.last_rect_size = rect_size
         if snapshot_hash:
             self.last_hash = snapshot_hash
         return CaptureDecision(True, "允许采集", snapshot_hash=snapshot_hash, elapsed_ms=elapsed)
+
+
+def _rect_size(rect: tuple[int, int, int, int]) -> tuple[int, int]:
+    left, top, right, bottom = rect
+    return (max(0, right - left), max(0, bottom - top))
 
 
 def image_hash(path: Path, size: int = 8) -> str:
@@ -61,5 +69,4 @@ def image_hash(path: Path, size: int = 8) -> str:
 
 def hash_distance(left: str, right: str) -> int:
     return (int(left, 16) ^ int(right, 16)).bit_count()
-
 

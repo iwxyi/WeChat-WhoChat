@@ -54,7 +54,7 @@ def _page_step(runtime: RuntimeState, config: AppConfig) -> StatusStep:
         return StatusStep("页面", "通过", f"{runtime.page.page_type.value} / {runtime.page.confidence:.2f}", "可以生成回复建议")
     if not config.capture.pause_ai_on_unknown_page:
         return StatusStep("页面", "放行", f"{runtime.page.page_type.value} / {runtime.page.confidence:.2f}", "已允许未知页面继续，但建议确认内容无误")
-    return StatusStep("页面", "阻断", runtime.page.reason, "切换到聊天页，或在诊断页重新校准区域")
+    return StatusStep("页面", "阻断", runtime.page.reason, "切换到聊天页，或点击校准重新指定区域")
 
 
 def _contact_step(contact: Contact | None, config: AppConfig) -> StatusStep:

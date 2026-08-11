@@ -812,6 +812,8 @@ class MainWindow(QMainWindow):
             floating.suggestion_copied.connect(self._on_suggestion_copied)
         if hasattr(floating, "user_hidden_changed"):
             floating.user_hidden_changed.connect(self._on_floating_user_hidden_changed)
+        if hasattr(floating, "calibration_requested"):
+            floating.calibration_requested.connect(self._open_calibration_dialog)
         self._sync_floating_content()
 
     def _build_sidebar(self) -> QWidget:
