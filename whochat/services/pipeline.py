@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
+from threading import Lock
 import time
 
 from PIL import Image
@@ -86,6 +89,9 @@ class CapturePipelineService(QObject):
         self._running: Future | None = None
         self._running_job_id: int | None = None
         self._last_snapshot_hash: str | None = None
+        self._snapshot_hash_cache: OrderedDict[str, None] = OrderedDict()
+        self._snapshot_hash_cache_lock = Lock()
+        self._snapshot_hash_cache_size = _snapshot_hash_cache_size()
         self.last_result: PipelineResult | None = None
         self.last_title_result: TitleOcrResult | None = None
         self.last_discard_reason: str | None = None
@@ -111,6 +117,11 @@ class CapturePipelineService(QObject):
         except Exception as exc:
             append_diagnostics_log("capture_pipeline", f"executor_shutdown_failed error={exc}")
         self._set_status("pipeline_shutdown")
+
+    def reset_snapshot_hash_cache(self) -> None:
+        with self._snapshot_hash_cache_lock:
+            self._last_snapshot_hash = None
+            self._snapshot_hash_cache.clear()
 
     def submit(self, state: RuntimeState) -> int | None:
         if state.layout is None or state.window.rect is None:
@@ -158,11 +169,12 @@ class CapturePipelineService(QObject):
             raise RuntimeError("pipeline requires layout and window rect")
         output = app_data_dir() / "capture" / f"job_{job_id}.png"
         image_path = self.capture_func(state.window.rect.as_tuple(), output)
-        snapshot_hash = image_hash(image_path)
-        if self._last_snapshot_hash == snapshot_hash:
-            raise DuplicateSnapshotError(snapshot_hash)
-        self._last_snapshot_hash = snapshot_hash
         title_ocr_image_path, title_layout, title_offset, title_crop_rect = _prepare_title_ocr_input(image_path, state.layout)
+        ocr_image_path, ocr_layout, offset, crop_rect = _prepare_ocr_input(image_path, state.layout)
+        snapshot_hash = _ocr_input_hash(title_ocr_image_path, ocr_image_path)
+        if self._has_seen_snapshot_hash(snapshot_hash):
+            raise DuplicateSnapshotError(snapshot_hash)
+        self._remember_snapshot_hash(snapshot_hash)
         title_started = time.monotonic()
         title_ocr_result = _offset_ocr_result(self.ocr_engine.recognize(title_ocr_image_path, title_layout), title_offset)
         title_elapsed_ms = _elapsed_ms(title_started)
@@ -183,7 +195,6 @@ class CapturePipelineService(QObject):
         )
         self.last_title_result = title_result
         self.title_ready.emit(title_result)
-        ocr_image_path, ocr_layout, offset, crop_rect = _prepare_ocr_input(image_path, state.layout)
         content_started = time.monotonic()
         content_ocr_result = _offset_ocr_result(self.ocr_engine.recognize(ocr_image_path, ocr_layout), offset)
         content_elapsed_ms = _elapsed_ms(content_started)
@@ -276,6 +287,23 @@ class CapturePipelineService(QObject):
         self.last_status = status
         self.status_changed.emit(status)
 
+    def _has_seen_snapshot_hash(self, snapshot_hash: str) -> bool:
+        with self._snapshot_hash_cache_lock:
+            if self._last_snapshot_hash == snapshot_hash:
+                return True
+            if snapshot_hash not in self._snapshot_hash_cache:
+                return False
+            self._snapshot_hash_cache.move_to_end(snapshot_hash)
+            return True
+
+    def _remember_snapshot_hash(self, snapshot_hash: str) -> None:
+        with self._snapshot_hash_cache_lock:
+            self._last_snapshot_hash = snapshot_hash
+            self._snapshot_hash_cache[snapshot_hash] = None
+            self._snapshot_hash_cache.move_to_end(snapshot_hash)
+            while len(self._snapshot_hash_cache) > self._snapshot_hash_cache_size:
+                self._snapshot_hash_cache.popitem(last=False)
+
 
 class DuplicateSnapshotError(RuntimeError):
     def __init__(self, snapshot_hash: str) -> None:
@@ -285,9 +313,16 @@ class DuplicateSnapshotError(RuntimeError):
 
 def _heavy_ocr_min_interval_ms() -> int:
     try:
-        return max(8000, int(os.environ.get("WHOCHAT_HEAVY_OCR_MIN_INTERVAL_MS", "30000")))
+        return max(5000, int(os.environ.get("WHOCHAT_HEAVY_OCR_MIN_INTERVAL_MS", "5000")))
     except ValueError:
-        return 30000
+        return 5000
+
+
+def _snapshot_hash_cache_size() -> int:
+    try:
+        return min(512, max(1, int(os.environ.get("WHOCHAT_SNAPSHOT_HASH_CACHE_SIZE", "64"))))
+    except ValueError:
+        return 64
 
 
 def _elapsed_ms(started: float) -> int:
@@ -350,6 +385,13 @@ def _prepare_title_ocr_input(image_path: Path, layout: LayoutRegions) -> tuple[P
         f"ocr_title_crop source={image_path.name} crop={crop_rect.as_tuple()} size={crop_rect.width}x{crop_rect.height}",
     )
     return crop_path, crop_layout, (crop_rect.left, crop_rect.top), crop_rect
+
+
+def _ocr_input_hash(title_image_path: Path, content_image_path: Path) -> str:
+    title_hash = image_hash(title_image_path, size=8)
+    content_hash = image_hash(content_image_path, size=16)
+    payload = f"title:{title_hash}|content:{content_hash}".encode("ascii")
+    return hashlib.sha256(payload).hexdigest()[:32]
 
 
 def _merge_ocr_results(title: OcrResult, content: OcrResult) -> OcrResult:

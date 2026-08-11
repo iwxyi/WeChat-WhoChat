@@ -98,7 +98,7 @@ def main() -> int:
 
     ocr.mode = "settings"
     services.pipeline.capture_func = _capture_settings
-    services.pipeline._last_snapshot_hash = None
+    services.pipeline.reset_snapshot_hash_cache()
     non_chat = services.pipeline.run_sync(services.runtime.state)
     if non_chat is None:
         raise RuntimeError("settings pipeline did not return result")

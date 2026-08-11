@@ -23,6 +23,8 @@ def main() -> int:
     config = ConfigStore().load()
     if not config.capture.auto_capture_enabled:
         raise RuntimeError("default config should enable automatic OCR capture")
+    if config.capture.ocr_min_interval_ms != 5000:
+        raise RuntimeError(f"default OCR flow interval should be 5000ms, got {config.capture.ocr_min_interval_ms}")
     services = build_services()
     if not services.autocapture.enabled:
         raise RuntimeError("services should start auto capture enabled by default")
@@ -35,7 +37,18 @@ def main() -> int:
     migrated = ConfigStore(legacy_config).load()
     if not migrated.capture.auto_capture_enabled or not migrated.capture.foreground_only:
         raise RuntimeError(f"legacy capture config should migrate to automatic OCR defaults: {migrated.capture}")
-    print(f"auto_capture={config.capture.auto_capture_enabled} foreground_only={config.capture.foreground_only}")
+    legacy_interval_config = DATA_DIR / "config" / "legacy_interval.json"
+    legacy_interval_config.write_text(
+        '{"capture":{"ocr_min_interval_ms":30000,"auto_capture_enabled":false,"scroll_debounce_ms":500,"pause_ai_on_unknown_page":true}}',
+        encoding="utf-8",
+    )
+    migrated_interval = ConfigStore(legacy_interval_config).load()
+    if migrated_interval.capture.ocr_min_interval_ms != 5000:
+        raise RuntimeError(f"legacy 30000ms OCR interval should migrate to 5000ms: {migrated_interval.capture}")
+    print(
+        f"auto_capture={config.capture.auto_capture_enabled} foreground_only={config.capture.foreground_only} "
+        f"ocr_interval={config.capture.ocr_min_interval_ms}"
+    )
     return 0
 
 

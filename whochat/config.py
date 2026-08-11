@@ -52,7 +52,7 @@ class CaptureConfig:
     auto_capture_enabled: bool = True
     foreground_only: bool = True
     scroll_debounce_ms: int = 900
-    ocr_min_interval_ms: int = 30000
+    ocr_min_interval_ms: int = 5000
     pause_ai_on_unknown_page: bool = True
     block_memory_for_unconfirmed_contact: bool = True
 
@@ -131,6 +131,8 @@ def _migrate_capture_config(value: Any) -> dict[str, Any]:
     if "foreground_only" not in migrated:
         migrated["foreground_only"] = True
     if "ocr_min_interval_ms" not in migrated:
+        migrated["ocr_min_interval_ms"] = CaptureConfig.ocr_min_interval_ms
+    elif int(migrated.get("ocr_min_interval_ms") or 0) == 30000 and "foreground_only" not in value:
         migrated["ocr_min_interval_ms"] = CaptureConfig.ocr_min_interval_ms
     if "auto_capture_enabled" in migrated and migrated["auto_capture_enabled"] is False and "foreground_only" not in value:
         migrated["auto_capture_enabled"] = True

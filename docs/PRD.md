@@ -522,13 +522,13 @@ unknown          未知页面
 ```text
 window_stable_delay_ms = 300
 scroll_debounce_ms = 900
-ocr_min_interval_ms = 30000
+ocr_min_interval_ms = 5000
 ai_min_interval_ms = 3000
 max_pending_ocr_jobs = 1
 max_pending_ai_jobs = 1
 ```
 
-当 OCR Provider 为 PaddleOCR 时，自动采集必须使用更保守的主流程完成后冷却；连续超时、子进程失败或输出不可解析时，应进入短期熔断，避免反复初始化模型造成系统卡顿或主程序退出。默认完整采集主流程结束后冷却不低于 30 秒，PaddleOCR worker 默认 90 秒超时。
+当 OCR Provider 为 PaddleOCR 时，自动采集必须使用主流程完成后冷却；连续超时、子进程失败或输出不可解析时，应进入短期熔断，避免反复初始化模型造成系统卡顿或主程序退出。默认完整采集主流程结束后冷却不低于 5 秒，PaddleOCR worker 默认 90 秒超时。
 
 自动采集还应参考最近采集样本中的标题 OCR、消息区 OCR 和总耗时：
 
@@ -539,8 +539,8 @@ max_pending_ai_jobs = 1
 
 内容变化检测：
 
-- 对聊天记录区域生成感知哈希或轻量图像 hash。
-- hash 与上次差异低于阈值时跳过 OCR。
+- 对标题区和聊天记录区域生成感知哈希或轻量图像 hash。
+- 缓存最近多个区域 hash；hash 命中或差异低于阈值时跳过 OCR，适配用户在多个联系人间来回切换但内容未变化的场景。
 - OCR 后消息指纹无变化时跳过 AI 请求。
 - 只在最近可见消息、联系人、分组策略或画像发生有效变化时重新生成回复。
 

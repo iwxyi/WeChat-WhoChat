@@ -143,9 +143,9 @@ def _is_transient_capture_block(reason: str) -> bool:
 
 def _heavy_ocr_min_interval_ms() -> int:
     try:
-        return max(8000, int(os.environ.get("WHOCHAT_HEAVY_OCR_MIN_INTERVAL_MS", "30000")))
+        return max(5000, int(os.environ.get("WHOCHAT_HEAVY_OCR_MIN_INTERVAL_MS", "5000")))
     except ValueError:
-        return 30000
+        return 5000
 
 
 @dataclass(frozen=True)

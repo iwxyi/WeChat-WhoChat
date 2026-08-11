@@ -3157,7 +3157,7 @@ class MainWindow(QMainWindow):
         self._config.ocr.min_confidence = self._ocr_min_confidence.value() if self._ocr_min_confidence else 0.5
         self._config.ocr.use_gpu = self._ocr_use_gpu.isChecked() if self._ocr_use_gpu else False
         self._config.capture.scroll_debounce_ms = self._capture_debounce.value() if self._capture_debounce else 500
-        self._config.capture.ocr_min_interval_ms = self._capture_ocr_interval.value() if self._capture_ocr_interval else 8000
+        self._config.capture.ocr_min_interval_ms = self._capture_ocr_interval.value() if self._capture_ocr_interval else 5000
         self._config.capture.auto_capture_enabled = self._capture_auto_enabled.isChecked() if self._capture_auto_enabled else True
         self._config.capture.foreground_only = self._capture_foreground_only.isChecked() if self._capture_foreground_only else True
         self._config.capture.pause_ai_on_unknown_page = self._capture_pause_unknown.isChecked() if self._capture_pause_unknown else True

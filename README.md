@@ -485,7 +485,7 @@ pip install -e ".[rapidocr]"
 ```
 
 新配置默认首选 `PaddleOCR`。`Preview Fixture` 只用于验证坐标流，不是真实文字识别；如果更重视本地轻量部署和启动速度，可以尝试 RapidOCR。
-PaddleOCR 的自动采集默认按完整主流程结束后的 30 秒级冷却执行，并优先通过常驻子进程 worker 复用已加载模型；CPU worker 默认 90 秒超时，连续失败会临时熔断，避免滚动时反复重载模型导致桌面卡死。采集管线会优先裁剪右侧内容区送入 OCR，降低整窗识别开销。需要调整时可设置 `WHOCHAT_HEAVY_OCR_MIN_INTERVAL_MS`、`WHOCHAT_PADDLEOCR_TIMEOUT_SECONDS`、`WHOCHAT_PADDLEOCR_WORKER_MODE` 和 `WHOCHAT_PADDLEOCR_FAILURE_COOLDOWN_SECONDS`。
+PaddleOCR 的自动采集默认按完整主流程结束后的 5 秒冷却执行，并优先通过常驻子进程 worker 复用已加载模型；CPU worker 默认 90 秒超时，连续失败会临时熔断，避免滚动时反复重载模型导致桌面卡死。采集管线会先裁剪标题区和右侧内容区做快速图片指纹对比，并缓存最近 64 个指纹；用户在多个联系人间切换但内容未变时会直接跳过 OCR。需要识别时再把裁剪图送入 OCR，降低整窗识别开销。需要调整时可设置 `WHOCHAT_HEAVY_OCR_MIN_INTERVAL_MS`、`WHOCHAT_SNAPSHOT_HASH_CACHE_SIZE`、`WHOCHAT_PADDLEOCR_TIMEOUT_SECONDS`、`WHOCHAT_PADDLEOCR_WORKER_MODE` 和 `WHOCHAT_PADDLEOCR_FAILURE_COOLDOWN_SECONDS`。
 自动采集还会读取最近采集样本的 PaddleOCR 总耗时：平均超过 15 秒会拉长间隔，超过 45 秒会进入更保守的 slow 间隔；手动运行采集管线不受这层自动降频影响。
 `fixtures/ocr/` 里的 golden JSON 样本用于回放结构化 OCR 结果，验证私聊/群聊页面分类、非聊天页阻断、消息归属、群成员昵称行过滤、时间锚点和 partial 处理，不依赖真实桌面或模型初始化。
 
