@@ -24,7 +24,6 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton
 
 from whochat.app import create_app
-from whochat.core.models import ContactStatus
 from whochat.core.runtime import LayoutRegions, Rect
 from whochat.ocr.engine import OcrEngine
 from whochat.ocr.models import OcrRegion, OcrResult, OcrTextBox
@@ -86,13 +85,12 @@ def main() -> int:
     if len(stored) != 2:
         raise RuntimeError(f"expected two stored messages, got {len(stored)}")
 
-    blocked = services.reply_generator.generate(window._build_reply_context(), window._config)
-    if blocked.allowed or "联系人尚未确认" not in blocked.status:
-        raise RuntimeError(f"unconfirmed contact should block AI suggestions: {blocked}")
+    generated = services.reply_generator.generate(window._build_reply_context(), window._config)
+    if not generated.allowed or len(generated.suggestions) < 1:
+        raise RuntimeError(f"auto-recognized contact should generate local suggestions: {generated}")
 
-    confirmed = services.contacts.update_profile(ingestion.contact.id, status=ContactStatus.CONFIRMED)
-    window._reload_contact_list(confirmed.id)
-    window._render_contact_detail(confirmed)
+    window._reload_contact_list(ingestion.contact.id)
+    window._render_contact_detail(ingestion.contact)
     window._refresh_overview_data()
     window._refresh_reply_suggestions()
     _wait_for(app, lambda: services.reply_tasks.last_result is not None, "reply task")
@@ -115,7 +113,7 @@ def main() -> int:
         raise RuntimeError("main path should write generation audit and capture sample metadata")
 
     print(
-        f"contact={confirmed.display_name} messages={len(stored)} "
+        f"contact={ingestion.contact.display_name} messages={len(stored)} "
         f"suggestions={len(task.result.suggestions)} copied={copied[:24]} "
         f"capture_samples={len(samples)} audits={len(audits)}"
     )

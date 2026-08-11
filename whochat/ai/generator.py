@@ -96,8 +96,10 @@ def _blocking_reason(context: ReplyContext, config: AppConfig) -> str | None:
         return f"当前页面未确认是聊天页：{context.runtime.page.page_type.value}"
     if context.contact is None:
         return "聊天对象尚未识别或选择，不能生成回复建议"
-    if config.capture.block_memory_for_unconfirmed_contact and context.contact.status != ContactStatus.CONFIRMED:
-        return f"联系人尚未确认：{context.contact.status.value}"
+    if context.contact.status == ContactStatus.IGNORED:
+        return "聊天对象已被忽略，不能生成回复建议"
+    if context.contact.status == ContactStatus.MERGED or context.contact.merged_into:
+        return "聊天对象已合并到其他对象，请切换到合并后的对象"
     if _uses_cloud_provider(config) and not context.contact.allow_cloud_ai:
         return "联系人未允许发送上下文到第三方 AI"
     return None

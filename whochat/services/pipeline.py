@@ -85,7 +85,6 @@ class CapturePipelineService(QObject):
         self._latest_job_id = 0
         self._running: Future | None = None
         self._running_job_id: int | None = None
-        self._last_submit_ms = 0
         self._last_snapshot_hash: str | None = None
         self.last_result: PipelineResult | None = None
         self.last_title_result: TitleOcrResult | None = None
@@ -127,18 +126,10 @@ class CapturePipelineService(QObject):
                 return None
             self._running.cancel()
             self._discard("superseded_running_job")
-        now_ms = int(time.monotonic() * 1000)
-        elapsed = now_ms - self._last_submit_ms if self._last_submit_ms else None
-        heavy_ocr_min_interval = _heavy_ocr_min_interval_ms()
-        if heavy_ocr and elapsed is not None and elapsed < heavy_ocr_min_interval:
-            self._discard(f"pipeline_cooldown:{elapsed}ms")
-            return None
-
         self._job_id += 1
         self._latest_job_id = self._job_id
         job_id = self._job_id
         self._running_job_id = job_id
-        self._last_submit_ms = now_ms
         self._set_status(f"pipeline_started: job={job_id}")
         append_diagnostics_log("capture_pipeline", f"started job={job_id} hwnd={state.window.hwnd} ocr={self.ocr_engine.name}")
         self._running = self.executor.submit(self._run_job, job_id, state)

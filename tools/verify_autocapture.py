@@ -47,6 +47,12 @@ def main() -> int:
     job = controller.flush_pending()
     if job != 1 or len(pipeline.submitted) != 1:
         raise RuntimeError(f"expected one auto capture submission, got job={job} count={len(pipeline.submitted)}")
+    controller._on_pipeline_completed("verify")
+    services.runtime.capture_gate.last_capture_ms = 0
+    controller.on_window_changed(window)
+    cooled = controller.flush_pending()
+    if cooled is not None or not controller.pending:
+        raise RuntimeError(f"flow completion cooldown should keep one pending capture, got cooled={cooled} pending={controller.pending}")
 
     services.runtime.set_paused(True)
     controller.on_window_changed(window)

@@ -66,8 +66,12 @@ def _page_step(runtime: RuntimeState, config: AppConfig) -> StatusStep:
 def _contact_step(contact: Contact | None, config: AppConfig) -> StatusStep:
     if contact is None:
         return StatusStep("联系人", "阻断", "尚未识别或选择联系人", "等待 OCR 识别标题，或在聊天对象页手动选择/确认")
-    if config.capture.block_memory_for_unconfirmed_contact and contact.status != ContactStatus.CONFIRMED:
-        return StatusStep("联系人", "阻断", f"联系人状态：{contact.status.value}", "在聊天对象页确认联系人后再写入画像或生成建议")
+    if contact.status == ContactStatus.IGNORED:
+        return StatusStep("联系人", "阻断", f"{contact.display_name} 已被忽略", "从聊天对象页移出忽略列表后再生成建议")
+    if contact.status == ContactStatus.MERGED or contact.merged_into:
+        return StatusStep("联系人", "阻断", f"{contact.display_name} 已合并到其他对象", "切换到合并后的聊天对象")
+    if contact.status in {ContactStatus.UNCONFIRMED, ContactStatus.SUSPECTED}:
+        return StatusStep("联系人", "通过", f"{contact.display_name} / {contact.status.value}", "已自动建立聊天对象，可后续确认、合并或忽略")
     return StatusStep("联系人", "通过", f"{contact.display_name} / {contact.status.value}", "联系人已可用于当前策略")
 
 
@@ -96,7 +100,7 @@ def _ocr_step(runtime: RuntimeState) -> StatusStep:
         return StatusStep("OCR", "跳过", "截图与上次相同，未重复识别", "这是正常去重；切换聊天或滚动后会重新识别")
     if status.startswith("discarded:pipeline_busy"):
         return StatusStep("OCR", "等待", "上一轮 OCR 仍在运行", "等待当前 OCR 完成")
-    if status.startswith("discarded:pipeline_cooldown"):
+    if status.startswith("discarded:flow_cooldown"):
         return StatusStep("OCR", "等待", "OCR 冷却中，避免高频识别", "等待冷却结束，或在设置中调整自动 OCR 间隔")
     if status.startswith("discarded:"):
         return StatusStep("OCR", "跳过", status.removeprefix("discarded:"), "根据原因调整窗口、页面或采集设置")

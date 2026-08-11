@@ -32,10 +32,16 @@ class AutoCaptureController(QObject):
         self._pending = False
         self._pending_state: RuntimeState | None = None
         self._last_submit_job_id: int | None = None
-        self._last_submit_ms = 0
+        self._last_completed_ms = 0
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.flush_pending)
+        result_ready = getattr(self.pipeline, "result_ready", None)
+        if result_ready is not None:
+            result_ready.connect(lambda _result: self._on_pipeline_completed("finished"))
+        result_discarded = getattr(self.pipeline, "result_discarded", None)
+        if result_discarded is not None:
+            result_discarded.connect(self._on_pipeline_discarded)
 
     @property
     def pending(self) -> bool:
@@ -85,32 +91,50 @@ class AutoCaptureController(QObject):
             self.status_changed.emit(f"auto_capture_skipped:{state.capture_decision.reason}")
             return None
         if self.pipeline.is_running:
+            self._pending = True
+            self._pending_state = state
             self.status_changed.emit("auto_capture_skipped:pipeline_running")
             return None
         now_ms = int(time.monotonic() * 1000)
-        elapsed = now_ms - self._last_submit_ms if self._last_submit_ms else None
+        elapsed = now_ms - self._last_completed_ms if self._last_completed_ms else None
         min_interval = max(self.runtime.capture_gate.policy.ocr_min_interval_ms, 2500)
         if getattr(getattr(self.pipeline, "ocr_engine", None), "name", "") == "paddleocr":
             min_interval = max(min_interval, _heavy_ocr_min_interval_ms())
         perf_policy = _recent_ocr_performance_policy(_read_recent_capture_samples(self.pipeline), min_interval)
         min_interval = perf_policy.min_interval_ms
         if elapsed is not None and elapsed < min_interval:
+            self._pending = True
+            self._pending_state = state
+            remaining = max(1, min_interval - elapsed)
+            self._timer.start(remaining)
             if perf_policy.status == "ok":
-                self.status_changed.emit(f"auto_capture_skipped:ocr_interval:{elapsed}ms")
+                self.status_changed.emit(f"auto_capture_waiting:flow_cooldown:{elapsed}ms<{min_interval}ms")
             else:
                 self.status_changed.emit(
-                    f"auto_capture_skipped:ocr_perf_{perf_policy.status}:{elapsed}ms<{min_interval}ms"
+                    f"auto_capture_waiting:ocr_perf_{perf_policy.status}:{elapsed}ms<{min_interval}ms"
                 )
             return None
         job_id = self.pipeline.submit(state)
         self._last_submit_job_id = job_id
-        if job_id is not None:
-            self._last_submit_ms = now_ms
         if job_id is None:
             self.status_changed.emit("auto_capture_submit_failed")
         else:
             self.status_changed.emit(f"auto_capture_submitted:{job_id}")
         return job_id
+
+    def _on_pipeline_discarded(self, reason: str) -> None:
+        if reason.startswith(("pipeline_busy", "stale_result", "superseded_running_job")):
+            return
+        self._on_pipeline_completed(f"discarded:{reason}")
+
+    def _on_pipeline_completed(self, reason: str) -> None:
+        self._last_completed_ms = int(time.monotonic() * 1000)
+        if self.enabled and self._pending and not self._timer.isActive():
+            delay_ms = max(0, self.runtime.capture_gate.policy.ocr_min_interval_ms)
+            if getattr(getattr(self.pipeline, "ocr_engine", None), "name", "") == "paddleocr":
+                delay_ms = max(delay_ms, _heavy_ocr_min_interval_ms())
+            self._timer.start(delay_ms)
+            self.status_changed.emit(f"auto_capture_pending_after_{reason}:{delay_ms}ms")
 
 
 def _is_transient_capture_block(reason: str) -> bool:

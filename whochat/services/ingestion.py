@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 
 from whochat.core.models import Contact, ContactStatus, ConversationType, Message, Speaker
@@ -53,7 +54,11 @@ class ChatIngestionService:
             result,
             min_confidence=self.min_title_confidence,
         )
-        title = title_candidates[0] if title_candidates else None
+        raw_title = title_candidates[0] if title_candidates else None
+        title = normalize_contact_title(
+            raw_title,
+            ConversationType.GROUP if result.page.page_type == PageType.CHAT_GROUP else ConversationType.DM,
+        ) if raw_title else None
         if title is None:
             debug_lines = tuple(_title_candidate_debug_lines(result.ocr_result, result))
             return self._finish(
@@ -72,6 +77,7 @@ class ChatIngestionService:
             platform=_platform_from_result(result),
             conversation_type=ConversationType.GROUP if result.page.page_type == PageType.CHAT_GROUP else ConversationType.DM,
         )
+        _add_raw_title_alias(self.contacts, contact, raw_title, title)
         if contact.status == ContactStatus.UNCONFIRMED:
             contact = self.contacts.update_profile(contact.id, status=ContactStatus.SUSPECTED)
 
@@ -107,7 +113,9 @@ class ChatIngestionService:
             result,
             min_confidence=self.min_title_confidence,
         )
-        title = title_candidates[0] if title_candidates else None
+        raw_title = title_candidates[0] if title_candidates else None
+        conversation_type = _conversation_type_from_title(raw_title or "")
+        title = normalize_contact_title(raw_title, conversation_type) if raw_title else None
         if title is None:
             debug_lines = tuple(_title_candidate_debug_lines(result.ocr_result, result))
             return self._finish(
@@ -123,8 +131,9 @@ class ChatIngestionService:
         contact = self.contacts.create_or_get_by_display_name(
             title,
             platform=_platform_from_result(result),
-            conversation_type=_conversation_type_from_title(title),
+            conversation_type=conversation_type,
         )
+        _add_raw_title_alias(self.contacts, contact, raw_title, title)
         if contact.status == ContactStatus.UNCONFIRMED:
             contact = self.contacts.update_profile(contact.id, status=ContactStatus.SUSPECTED)
         return self._finish(
@@ -172,7 +181,16 @@ def extract_title_candidates(
         if box.region == OcrRegion.TITLE and box.confidence >= min_confidence and _looks_like_contact_title(box.text)
     ]
     candidates.sort(key=lambda box: (-box.confidence, box.rect.top, box.rect.left))
-    return [box.text.strip()[:80] for box in candidates if box.text.strip()]
+    return [_normalize_spaces(box.text.strip())[:80] for box in candidates if box.text.strip()]
+
+
+def normalize_contact_title(title: str | None, conversation_type: ConversationType) -> str | None:
+    if title is None:
+        return None
+    text = _normalize_spaces(title)
+    if conversation_type == ConversationType.GROUP:
+        text = _strip_group_member_count(text)
+    return text[:80] if text else None
 
 
 def _title_candidate_debug_lines(ocr_result: OcrResult, result: PipelineResult) -> list[str]:
@@ -213,6 +231,27 @@ def _conversation_type_from_title(title: str) -> ConversationType:
         if re.search(r"[（(]\s*\d{2,}\s*[)）]", title):
             return ConversationType.GROUP
     return ConversationType.DM
+
+
+def _strip_group_member_count(title: str) -> str:
+    previous = title
+    while True:
+        text = re.sub(r"\s*[（(]\s*\d{2,}\s*[)）]\s*$", "", previous).strip()
+        if text == previous:
+            return text
+        previous = text
+
+
+def _normalize_spaces(value: str) -> str:
+    return " ".join(value.strip().split())
+
+
+def _add_raw_title_alias(contacts: ContactRepository, contact: Contact, raw_title: str | None, normalized_title: str | None) -> None:
+    if not raw_title or not normalized_title:
+        return
+    raw = _normalize_spaces(raw_title)
+    if raw and raw != normalized_title:
+        contacts.add_alias(contact.id, raw, "ocr_title")
 
 
 def message_from_parsed(contact_id: str, parsed: ParsedOcrMessage, result: PipelineResult) -> Message:

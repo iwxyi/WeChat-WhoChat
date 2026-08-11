@@ -173,6 +173,34 @@ def main() -> int:
         raise RuntimeError(f"group ingestion should be accepted: {group_accepted}")
     if group_accepted.contact.conversation_type != ConversationType.GROUP:
         raise RuntimeError(f"group page should create group contact: {group_accepted.contact.conversation_type}")
+    if group_accepted.contact.display_name != "项目推进群":
+        raise RuntimeError(f"group member count should be stripped from display name: {group_accepted.contact.display_name}")
+    group_changed_count = PipelineResult(
+        **{
+            **group_result.__dict__,
+            "job_id": 33,
+            "snapshot_hash": "group_count_changed",
+            "ocr_result": OcrResult(
+                boxes=[
+                    OcrTextBox("项目推进群(18)", _inside(state.layout.title_rect, 0.05, 0.2, 0.34, 0.72), 0.9, OcrRegion.UNKNOWN, "verify"),
+                    OcrTextBox("人数变化后仍是同一个群", _inside(state.layout.message_rect, 0.08, 0.15, 0.44, 0.24), 0.88, OcrRegion.UNKNOWN, "verify"),
+                ],
+                source_image=str(DATA_DIR / "group_count_changed.png"),
+                engine="verify-ocr",
+            ),
+            "messages": [
+                ParsedOcrMessage(Speaker.OTHER, "人数变化后仍是同一个群", _inside(state.layout.message_rect, 0.08, 0.15, 0.44, 0.24), 0.88, False, "verify"),
+            ],
+        }
+    )
+    group_changed_accepted = services.ingestion.ingest_pipeline_result(group_changed_count)
+    if group_changed_accepted.contact is None or group_changed_accepted.contact.id != group_accepted.contact.id:
+        raise RuntimeError(
+            f"group member count change should resolve to same contact: {group_accepted.contact} vs {group_changed_accepted.contact}"
+        )
+    aliases = services.contacts.list_aliases(group_accepted.contact.id)
+    if "项目推进群（12）" not in {alias.alias for alias in aliases}:
+        raise RuntimeError(f"raw group title should be retained as alias: {aliases}")
 
     messages = services.messages.list_for_contact(accepted.contact.id)
     if len(messages) != 2:

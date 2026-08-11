@@ -54,8 +54,8 @@ def main() -> int:
         reply_running=False,
         provider_health=services.reply_generator.provider_health_summary(),
     )
-    _assert_step(unconfirmed_steps, "联系人", "阻断")
-    _assert_action_contains(unconfirmed_steps, "联系人", "确认")
+    _assert_step(unconfirmed_steps, "联系人", "通过")
+    _assert_action_contains(unconfirmed_steps, "联系人", "合并")
 
     contact = services.contacts.update_profile(contact.id, status=ContactStatus.CONFIRMED, allow_cloud_ai=False)
     config.ai.api_key = "sk-test-value-that-must-not-be-used"
@@ -128,7 +128,7 @@ def main() -> int:
     )
     _assert_step(failed_ocr_steps, "OCR", "失败")
 
-    cooled_ocr_state = replace(chat_state, pipeline_status="discarded:pipeline_cooldown:100ms")
+    cooled_ocr_state = replace(chat_state, pipeline_status="discarded:flow_cooldown:100ms")
     cooled_ocr_steps = build_status_chain(
         runtime=cooled_ocr_state,
         contact=contact,

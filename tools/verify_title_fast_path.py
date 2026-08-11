@@ -66,7 +66,7 @@ def main() -> int:
     title_ingestion = services.ingestion.ingest_title_result(services.pipeline.last_title_result)
     if not title_ingestion.accepted or title_ingestion.contact is None:
         raise RuntimeError(f"title ingestion should accept contact: {title_ingestion}")
-    if title_ingestion.contact.display_name != "标题快路径群（18）":
+    if title_ingestion.contact.display_name != "标题快路径群":
         raise RuntimeError(f"title filter selected wrong contact: {title_ingestion.contact}")
     if title_ingestion.contact.status != ContactStatus.SUSPECTED:
         raise RuntimeError(f"title contact should be suspected: {title_ingestion.contact.status}")

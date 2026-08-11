@@ -73,12 +73,10 @@ def main() -> int:
         created_at="2026-08-04T00:00:00+00:00",
     )
     executor.future.set_result(result)
-    cooled = pipeline.submit(state)
-    if cooled is not None:
-        raise RuntimeError(f"paddle cooldown should reject immediate submit, got {cooled}")
-    if not str(pipeline.last_discard_reason).startswith("pipeline_cooldown"):
-        raise RuntimeError(f"expected cooldown discard, got {pipeline.last_discard_reason}")
-    print(f"submitted={executor.submitted} busy={pipeline.last_discard_reason}")
+    after_finish = pipeline.submit(state)
+    if after_finish != 2:
+        raise RuntimeError(f"pipeline should accept next serial job after completion, got {after_finish}")
+    print(f"submitted={executor.submitted} next_job={after_finish} busy={pipeline.last_discard_reason}")
     return 0
 
 

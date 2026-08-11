@@ -80,12 +80,12 @@ def main() -> int:
     if "low · 目标：稳妥" not in panel_text:
         raise RuntimeError(f"suggestion rationale should be visible and compact: {panel_text}")
 
-    unconfirmed = services.contacts.update_profile(contact.id, status=ContactStatus.UNCONFIRMED)
-    window._reload_contact_list(unconfirmed.id)
+    ignored = services.contacts.update_profile(contact.id, status=ContactStatus.IGNORED)
+    window._reload_contact_list(ignored.id)
     blocked = window._build_reply_result()
     window._render_reply_suggestions(blocked)
     blocked_text = _panel_text(window)
-    if "已阻断" not in blocked_text or "联系人尚未确认" not in blocked_text:
+    if "已阻断" not in blocked_text or "已被忽略" not in blocked_text:
         raise RuntimeError(f"blocked reply state should remain explicit: {blocked_text}")
     if "依据：wechat·解释性联系人" not in blocked_text:
         raise RuntimeError(f"blocked reply state should still show evidence: {blocked_text}")

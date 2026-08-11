@@ -59,13 +59,13 @@ def main() -> int:
 
     _append_perf_sample(services, 20000, job_id=1)
     _append_perf_sample(services, 22000, job_id=2)
-    controller._last_submit_ms = int(time.monotonic() * 1000) - 30000
+    controller._last_completed_ms = int(time.monotonic() * 1000) - 30000
     services.runtime.capture_gate.last_capture_ms = 0
     controller.on_window_changed(window)
     if controller.flush_pending() is not None:
         raise RuntimeError("warning OCR performance should extend auto capture interval")
 
-    controller._last_submit_ms = int(time.monotonic() * 1000) - 45000
+    controller._last_completed_ms = int(time.monotonic() * 1000) - 45000
     services.runtime.capture_gate.last_capture_ms = 0
     controller.on_window_changed(window)
     if controller.flush_pending() != 2:
@@ -73,7 +73,7 @@ def main() -> int:
 
     _append_perf_sample(services, 70000, job_id=3)
     _append_perf_sample(services, 80000, job_id=4)
-    controller._last_submit_ms = int(time.monotonic() * 1000) - 90000
+    controller._last_completed_ms = int(time.monotonic() * 1000) - 90000
     services.runtime.capture_gate.last_capture_ms = 0
     controller.on_window_changed(window)
     if controller.flush_pending() is not None:

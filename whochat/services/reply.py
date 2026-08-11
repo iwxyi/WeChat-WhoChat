@@ -179,7 +179,7 @@ def _cloud_request_may_be_attempted(context: ReplyContext, config: AppConfig) ->
         return False
     if context.contact is None or not context.contact.allow_cloud_ai:
         return False
-    if config.capture.block_memory_for_unconfirmed_contact and context.contact.status != ContactStatus.CONFIRMED:
+    if context.contact.status in {ContactStatus.IGNORED, ContactStatus.MERGED} or context.contact.merged_into:
         return False
     return True
 
