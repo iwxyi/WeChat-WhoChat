@@ -1,0 +1,31 @@
+{
+  "name": "wechat_chat_group_basic",
+  "layout": {
+    "window_rect": [0, 0, 1200, 800],
+    "nav_rect": [0, 0, 90, 800],
+    "chat_list_rect": [90, 0, 384, 800],
+    "content_rect": [384, 0, 1200, 800],
+    "title_rect": [384, 0, 1200, 84],
+    "message_rect": [384, 84, 1200, 592],
+    "input_rect": [384, 592, 1200, 800],
+    "confidence": 0.9,
+    "source": "calibrated",
+    "reason": "golden group layout"
+  },
+  "boxes": [
+    {"text": "项目推进群（12）", "rect": [450, 18, 650, 50], "confidence": 0.96},
+    {"text": "小蓝", "rect": [452, 122, 510, 144], "confidence": 0.82},
+    {"text": "今天的方案可以发我吗？", "rect": [452, 150, 780, 188], "confidence": 0.91},
+    {"text": "我整理后发群里。", "rect": [850, 258, 1120, 296], "confidence": 0.9},
+    {"text": "输入消息", "rect": [450, 680, 580, 712], "confidence": 0.88}
+  ],
+  "expected": {
+    "page_type": "chat_group",
+    "can_generate_reply": true,
+    "min_page_confidence": 0.65,
+    "messages": [
+      {"speaker": "other", "text": "今天的方案可以发我吗？", "partial": false},
+      {"speaker": "me", "text": "我整理后发群里。", "partial": false}
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "wechat_chat_dm_time_anchor",
+  "layout": {
+    "window_rect": [0, 0, 1200, 800],
+    "nav_rect": [0, 0, 90, 800],
+    "chat_list_rect": [90, 0, 384, 800],
+    "content_rect": [384, 0, 1200, 800],
+    "title_rect": [384, 0, 1200, 84],
+    "message_rect": [384, 84, 1200, 592],
+    "input_rect": [384, 592, 1200, 800],
+    "confidence": 0.9,
+    "source": "calibrated",
+    "reason": "golden time layout"
+  },
+  "boxes": [
+    {"text": "林老师", "rect": [450, 18, 540, 50], "confidence": 0.96},
+    {"text": "14:30", "rect": [760, 92, 840, 114], "confidence": 0.9},
+    {"text": "下午前能确认吗？", "rect": [450, 150, 720, 188], "confidence": 0.91},
+    {"text": "我看一下后回复你。", "rect": [830, 258, 1120, 296], "confidence": 0.9},
+    {"text": "输入消息", "rect": [450, 680, 580, 712], "confidence": 0.88}
+  ],
+  "expected": {
+    "page_type": "chat_dm",
+    "can_generate_reply": true,
+    "min_page_confidence": 0.65,
+    "messages": [
+      {"speaker": "other", "text": "下午前能确认吗？", "partial": false, "time_text": "14:30"},
+      {"speaker": "me", "text": "我看一下后回复你。", "partial": false, "time_text": "14:30"}
+    ]
+  }
+}

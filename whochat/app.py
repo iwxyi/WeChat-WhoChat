@@ -1,0 +1,67 @@
+from __future__ import annotations
+
+import sys
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
+
+from whochat.diagnostics import configure_native_runtime_limits, configure_process_diagnostics
+from whochat.config import ConfigStore
+from whochat.platform.window_follow import TargetWindowFollowController
+from whochat.services.bootstrap import build_services
+from whochat.ui.floating_widget import FloatingWidget
+from whochat.ui.main_window import MainWindow
+from whochat.ui.theme import apply_app_theme
+
+
+def create_app() -> QApplication:
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setApplicationName("WhoChat")
+    app.setOrganizationName("WhoChat")
+    app.setAttribute(Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings)
+    apply_app_theme(app)
+    return app
+
+
+def main() -> int:
+    configure_native_runtime_limits()
+    crash_log = configure_process_diagnostics()
+    app = create_app()
+    config = ConfigStore().load()
+    services = build_services()
+    main_window = MainWindow(services)
+    main_window.append_log(f"diagnostics_log: {crash_log}")
+    floating = FloatingWidget()
+    floating.apply_preferences(
+        placement_preference=config.floating.placement_preference,
+        opacity_percent=config.floating.opacity_percent,
+        suggestion_count=config.floating.suggestion_count,
+    )
+    follower = TargetWindowFollowController(config.targets)
+    main_window.attach_floating_widget(floating)
+    main_window.targets_changed.connect(follower.set_targets)
+    follower.window_changed.connect(services.autocapture.on_window_changed)
+    follower.window_changed.connect(lambda window: _sync_floating(floating, window))
+    follower.status_changed.connect(main_window.append_log)
+    services.autocapture.status_changed.connect(main_window.append_log)
+    app.aboutToQuit.connect(follower.stop)
+    app.aboutToQuit.connect(services.shutdown)
+    app.aboutToQuit.connect(floating.close)
+    main_window.show()
+    floating.show_waiting()
+    follower.start()
+    return app.exec()
+
+
+def _sync_floating(floating: FloatingWidget, window) -> None:
+    if window is None:
+        floating.hide_for_window_state("未发现已启用的聊天窗口")
+        return
+    if getattr(window, "minimized", False) or not getattr(window, "visible", True):
+        floating.hide_for_window_state(getattr(window, "diagnostic", "") or "目标窗口不可见")
+        return
+    floating.attach_to_window_rect(window.rect, window.title)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

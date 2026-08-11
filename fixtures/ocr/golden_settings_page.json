@@ -1,0 +1,33 @@
+{
+  "name": "wechat_settings_page",
+  "layout": {
+    "window_rect": [0, 0, 1200, 800],
+    "nav_rect": [0, 0, 90, 800],
+    "chat_list_rect": [90, 0, 384, 800],
+    "content_rect": [384, 0, 1200, 800],
+    "title_rect": [384, 0, 1200, 84],
+    "message_rect": [384, 84, 1200, 592],
+    "input_rect": [384, 592, 1200, 800],
+    "confidence": 0.9,
+    "source": "calibrated",
+    "reason": "golden settings layout"
+  },
+  "boxes": [
+    {"text": "设置", "rect": [450, 18, 540, 50], "confidence": 0.96},
+    {"text": "账号与安全", "rect": [450, 130, 620, 166], "confidence": 0.91},
+    {"text": "消息通知", "rect": [450, 196, 590, 232], "confidence": 0.90},
+    {"text": "隐私", "rect": [450, 262, 540, 298], "confidence": 0.89},
+    {"text": "关于微信", "rect": [450, 328, 590, 364], "confidence": 0.88}
+  ],
+  "expected": {
+    "page_type": "settings",
+    "can_generate_reply": false,
+    "min_page_confidence": 0.70,
+    "messages": [
+      {"speaker": "other", "text": "账号与安全", "partial": false},
+      {"speaker": "other", "text": "消息通知", "partial": false},
+      {"speaker": "other", "text": "隐私", "partial": false},
+      {"speaker": "other", "text": "关于微信", "partial": false}
+    ]
+  }
+}

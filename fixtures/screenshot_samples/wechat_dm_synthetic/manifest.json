@@ -1,0 +1,21 @@
+{
+  "name": "wechat_dm_synthetic",
+  "image": "sample.png",
+  "layout": "layout.json",
+  "notes": "Synthetic sample for screenshot replay infrastructure. Replace or add sibling directories with real redacted WeChat screenshots.",
+  "structured_boxes": [
+    {"text": "样本联系人", "rect": [430, 16, 600, 54], "confidence": 0.92},
+    {"text": "今天下午能给我一个确认吗？", "rect": [452, 150, 780, 205], "confidence": 0.91},
+    {"text": "可以，我核对后尽快回复你。", "rect": [842, 270, 1150, 326], "confidence": 0.90},
+    {"text": "输入", "rect": [430, 680, 520, 712], "confidence": 0.82}
+  ],
+  "expected": {
+    "page_type": "chat_dm",
+    "can_generate_reply": true,
+    "min_page_confidence": 0.70,
+    "messages": [
+      {"speaker": "other", "text": "今天下午能给我一个确认吗？", "partial": false, "time_text": null},
+      {"speaker": "me", "text": "可以，我核对后尽快回复你。", "partial": false, "time_text": null}
+    ]
+  }
+}

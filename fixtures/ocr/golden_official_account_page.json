@@ -1,0 +1,32 @@
+{
+  "name": "wechat_official_account_page",
+  "layout": {
+    "window_rect": [0, 0, 1200, 800],
+    "nav_rect": [0, 0, 90, 800],
+    "chat_list_rect": [90, 0, 384, 800],
+    "content_rect": [384, 0, 1200, 800],
+    "title_rect": [384, 0, 1200, 84],
+    "message_rect": [384, 84, 1200, 592],
+    "input_rect": [384, 592, 1200, 800],
+    "confidence": 0.9,
+    "source": "calibrated",
+    "reason": "golden official account layout"
+  },
+  "boxes": [
+    {"text": "服务号", "rect": [450, 18, 540, 50], "confidence": 0.96},
+    {"text": "进入公众号", "rect": [500, 150, 690, 190], "confidence": 0.91},
+    {"text": "关注公众号", "rect": [500, 230, 690, 270], "confidence": 0.90},
+    {"text": "服务通知", "rect": [500, 310, 680, 350], "confidence": 0.88},
+    {"text": "菜单", "rect": [450, 680, 540, 712], "confidence": 0.82}
+  ],
+  "expected": {
+    "page_type": "official_account",
+    "can_generate_reply": false,
+    "min_page_confidence": 0.70,
+    "messages": [
+      {"speaker": "other", "text": "进入公众号", "partial": false},
+      {"speaker": "other", "text": "关注公众号", "partial": false},
+      {"speaker": "other", "text": "服务通知", "partial": false}
+    ]
+  }
+}

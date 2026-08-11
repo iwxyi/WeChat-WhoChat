@@ -1,0 +1,29 @@
+{
+  "name": "wechat_unknown_partial_messages",
+  "layout": {
+    "window_rect": [0, 0, 1200, 800],
+    "nav_rect": [0, 0, 90, 800],
+    "chat_list_rect": [90, 0, 384, 800],
+    "content_rect": [384, 0, 1200, 800],
+    "title_rect": [384, 0, 1200, 84],
+    "message_rect": [384, 84, 1200, 592],
+    "input_rect": [384, 592, 1200, 800],
+    "confidence": 0.9,
+    "source": "calibrated",
+    "reason": "golden partial layout"
+  },
+  "boxes": [
+    {"text": "未知页面标题", "rect": [450, 18, 590, 50], "confidence": 0.96},
+    {"text": "上一页残留消息", "rect": [450, 86, 700, 116], "confidence": 0.88},
+    {"text": "页面底部消息", "rect": [830, 560, 1080, 590], "confidence": 0.87}
+  ],
+  "expected": {
+    "page_type": "unknown",
+    "can_generate_reply": false,
+    "min_page_confidence": 0.3,
+    "messages": [
+      {"speaker": "other", "text": "上一页残留消息", "partial": true},
+      {"speaker": "me", "text": "页面底部消息", "partial": true}
+    ]
+  }
+}

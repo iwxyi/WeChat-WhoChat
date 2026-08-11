@@ -1,0 +1,33 @@
+[project]
+name = "whochat"
+version = "0.1.0"
+description = "A local-first AI reply assistant for chat windows."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "PySide6>=6.8",
+  "pywin32>=306; platform_system == 'Windows'",
+  "psutil>=5.9",
+  "mss>=10",
+  "Pillow>=10",
+]
+
+[project.optional-dependencies]
+rapidocr = [
+  "rapidocr>=3.0",
+  "onnxruntime>=1.18",
+]
+paddleocr = [
+  "paddleocr>=3.0",
+  "paddlepaddle>=3.0",
+]
+
+[project.scripts]
+whochat = "whochat.app:main"
+
+[tool.setuptools.packages.find]
+include = ["whochat*"]
+exclude = ["tmp*", "tools*", "docs*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

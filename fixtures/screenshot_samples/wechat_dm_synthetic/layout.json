@@ -1,0 +1,12 @@
+{
+  "window_rect": [0, 0, 1200, 800],
+  "nav_rect": [0, 0, 76, 800],
+  "chat_list_rect": [76, 0, 386, 800],
+  "content_rect": [386, 0, 1200, 800],
+  "title_rect": [386, 0, 1200, 74],
+  "message_rect": [386, 74, 1200, 650],
+  "input_rect": [386, 650, 1200, 800],
+  "confidence": 0.92,
+  "source": "calibrated",
+  "reason": "synthetic screenshot sample"
+}

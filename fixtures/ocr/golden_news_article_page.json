@@ -1,0 +1,32 @@
+{
+  "name": "wechat_news_article_page",
+  "layout": {
+    "window_rect": [0, 0, 1200, 800],
+    "nav_rect": [0, 0, 90, 800],
+    "chat_list_rect": [90, 0, 384, 800],
+    "content_rect": [384, 0, 1200, 800],
+    "title_rect": [384, 0, 1200, 84],
+    "message_rect": [384, 84, 1200, 592],
+    "input_rect": [384, 592, 1200, 800],
+    "confidence": 0.9,
+    "source": "calibrated",
+    "reason": "golden news article layout"
+  },
+  "boxes": [
+    {"text": "今日新闻", "rect": [450, 18, 590, 50], "confidence": 0.96},
+    {"text": "这是一个很长的文章标题，用来模拟微信文章页面而不是聊天气泡", "rect": [450, 120, 1060, 170], "confidence": 0.91},
+    {"text": "作者 产品团队 发布于 今天 阅读量 1000 分享", "rect": [450, 200, 1060, 240], "confidence": 0.89},
+    {"text": "正文内容包含多段信息，阅读全文 后可以跳转到原文链接，底部还有赞和在看操作", "rect": [450, 280, 1120, 340], "confidence": 0.88},
+    {"text": "输入", "rect": [450, 680, 540, 712], "confidence": 0.78}
+  ],
+  "expected": {
+    "page_type": "news_article",
+    "can_generate_reply": false,
+    "min_page_confidence": 0.68,
+    "messages": [
+      {"speaker": "other", "text": "这是一个很长的文章标题，用来模拟微信文章页面而不是聊天气泡", "partial": false},
+      {"speaker": "other", "text": "作者 产品团队 发布于 今天 阅读量 1000 分享", "partial": false},
+      {"speaker": "other", "text": "正文内容包含多段信息，阅读全文 后可以跳转到原文链接，底部还有赞和在看操作", "partial": false}
+    ]
+  }
+}
