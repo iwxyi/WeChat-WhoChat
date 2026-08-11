@@ -94,6 +94,8 @@ def main() -> int:
         raise RuntimeError(f"expected connection test success, got {ok}")
     if failed.ok or failed.status != "http_error:401":
         raise RuntimeError(f"expected connection test HTTP failure, got {failed}")
+    if "认证失败" not in failed.detail or "API Key" not in failed.detail:
+        raise RuntimeError(f"401 failure should explain API key/provider mismatch: {failed.detail}")
     if not local.ok or local.status != "local_preview":
         raise RuntimeError(f"expected local preview no-network success, got {local}")
     if calls["count"] != 4:
@@ -113,6 +115,8 @@ def main() -> int:
         raise RuntimeError(f"endpoint should not duplicate chat/completions: {calls['urls']}")
     if window._ai_action_status is None or not window._ai_action_status.text():
         raise RuntimeError("AI action status should show test feedback")
+    if "认证失败" not in window._ai_action_status.text():
+        raise RuntimeError(f"UI should show actionable 401 feedback: {window._ai_action_status.text()}")
     print(f"calls={calls['count']} ok={ok.status} failed={failed.status} log_chars={len(log_text)}")
     return 0
 

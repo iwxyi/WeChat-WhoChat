@@ -69,7 +69,7 @@ def test_ai_connection(config: AppConfig) -> AIConnectionTestResult:
     except urllib.error.HTTPError as exc:
         elapsed = _elapsed_ms(started)
         _log_ai_provider(endpoint, elapsed, f"connection_test_http_error:{exc.code}", f"reason={exc.reason}")
-        return AIConnectionTestResult(False, f"http_error:{exc.code}", provider, f"HTTP {exc.code}: {exc.reason}", elapsed)
+        return AIConnectionTestResult(False, f"http_error:{exc.code}", provider, _http_error_message(exc.code, exc.reason), elapsed)
     except (urllib.error.URLError, TimeoutError) as exc:
         elapsed = _elapsed_ms(started)
         _log_ai_provider(endpoint, elapsed, "connection_test_transport_error", str(exc))
@@ -168,7 +168,7 @@ def _generate_openai_compatible(context: ReplyContext, config: AppConfig) -> Rep
             data = json.loads(raw_body)
     except urllib.error.HTTPError as exc:
         _log_ai_provider(endpoint, _elapsed_ms(started), f"http_error:{exc.code}", f"reason={exc.reason}")
-        return ReplyGenerationResult(False, f"AI 请求失败：HTTP {exc.code}", [], config.ai.provider)
+        return ReplyGenerationResult(False, f"AI 请求失败：{_http_error_message(exc.code, exc.reason)}", [], config.ai.provider)
     except (urllib.error.URLError, TimeoutError) as exc:
         _log_ai_provider(endpoint, _elapsed_ms(started), "transport_error", str(exc))
         return ReplyGenerationResult(False, f"AI 请求失败：{exc}", [], config.ai.provider)
@@ -225,6 +225,18 @@ def _chat_completions_endpoint(base_url: str) -> str:
     if value.endswith("/chat/completions"):
         return value
     return value + "/chat/completions"
+
+
+def _http_error_message(code: int, reason: str) -> str:
+    if code == 401:
+        return "HTTP 401：认证失败，请检查 API Key 是否属于当前服务商，接口地址是否填到对应 Provider 的 /v1"
+    if code == 403:
+        return "HTTP 403：无权限，请检查账号额度、模型权限或服务商访问限制"
+    if code == 404:
+        return "HTTP 404：接口或模型不存在，请检查接口地址和模型名称"
+    if code == 429:
+        return "HTTP 429：请求过于频繁或额度不足，请稍后重试或检查服务商额度"
+    return f"HTTP {code}: {reason}"
 
 
 def _log_ai_provider(endpoint: str, elapsed_ms: int, status: str, detail: str) -> None:
