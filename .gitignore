@@ -1,16 +1,59 @@
-.venv/
-.venv312/
+# Python
 __pycache__/
 *.py[cod]
+*$py.class
+*.egg-info/
 .pytest_cache/
 .ruff_cache/
-tmp/
-dist/
-build/
-*.egg-info/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+.venv*/
+venv/
+env/
+
+# Local configuration and secrets
 .env
 .env.*
+*.local
 .vscode/
-tmp/
-.whochat-data/
+.idea/
 .agents/
+.codex/
+
+# Runtime data
+.whochat-data/
+whochat-data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.log
+logs/
+
+# OCR/model caches
+.paddle*/
+.paddlex/
+ocr_cache/
+model_cache/
+
+# Temporary verification and debug output
+tmp/
+temp/
+*.tmp
+*.bak
+*.pid
+*.prof
+*.trace
+debug_samples/
+capture_samples/
+screenshots/
+exports/
+
+# Build artifacts
+dist/
+build/
+*.spec
