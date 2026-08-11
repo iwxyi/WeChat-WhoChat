@@ -27,6 +27,7 @@ def classify_box_region(rect: Rect, layout: LayoutRegions) -> OcrRegion:
 def classify_page_from_ocr(result: OcrResult, layout: LayoutRegions) -> PageClassification:
     normalized = normalize_ocr_regions(result, layout)
     message_boxes = [box for box in normalized.boxes if box.region == OcrRegion.MESSAGE and box.confidence >= 0.45]
+    stable_message_boxes = [box for box in message_boxes if not _is_edge_partial_box(box, layout)]
     input_boxes = [box for box in normalized.boxes if box.region == OcrRegion.INPUT and box.confidence >= 0.4]
     title_boxes = [box for box in normalized.boxes if box.region == OcrRegion.TITLE and box.confidence >= 0.45]
     chat_list_boxes = [box for box in normalized.boxes if box.region == OcrRegion.CHAT_LIST and box.confidence >= 0.4]
@@ -36,31 +37,31 @@ def classify_page_from_ocr(result: OcrResult, layout: LayoutRegions) -> PageClas
         return non_chat
 
     group_title = any(_looks_like_group_title(box.text) for box in title_boxes)
-    if len(message_boxes) >= 2 and input_boxes and title_boxes:
-        confidence = min(0.78, 0.55 + len(message_boxes) * 0.06 + len(input_boxes) * 0.04)
+    if len(stable_message_boxes) >= 2 and input_boxes and title_boxes:
+        confidence = min(0.78, 0.55 + len(stable_message_boxes) * 0.06 + len(input_boxes) * 0.04)
         page_type = PageType.CHAT_GROUP if group_title else PageType.CHAT_DM
         return PageClassification(
             page_type,
             confidence,
-            f"OCR 证据包含标题、输入区和 {len(message_boxes)} 个消息候选"
+            f"OCR 证据包含标题、输入区和 {len(stable_message_boxes)} 个稳定消息候选"
             + ("；标题呈现群聊特征" if group_title else ""),
         )
-    if len(message_boxes) >= 2 and title_boxes:
-        confidence = min(0.72, 0.54 + len(message_boxes) * 0.05 + len(title_boxes) * 0.03)
+    if len(stable_message_boxes) >= 2 and title_boxes:
+        confidence = min(0.72, 0.54 + len(stable_message_boxes) * 0.05 + len(title_boxes) * 0.03)
         page_type = PageType.CHAT_GROUP if group_title else PageType.CHAT_DM
         return PageClassification(
             page_type,
             confidence,
-            f"OCR 证据包含标题和 {len(message_boxes)} 个消息候选；输入区未识别到文字但不阻断聊天页判断"
+            f"OCR 证据包含标题和 {len(stable_message_boxes)} 个稳定消息候选；输入区未识别到文字但不阻断聊天页判断"
             + ("；标题呈现群聊特征" if group_title else ""),
         )
-    if len(message_boxes) >= 3 and input_boxes:
+    if len(stable_message_boxes) >= 3 and input_boxes:
         return PageClassification(
             PageType.CHAT_DM,
             0.67,
-            f"OCR 证据包含输入区和 {len(message_boxes)} 个消息候选；标题漏检，按私聊候选处理",
+            f"OCR 证据包含输入区和 {len(stable_message_boxes)} 个稳定消息候选；标题漏检，按私聊候选处理",
         )
-    if len(message_boxes) >= 2 and (input_boxes or title_boxes):
+    if len(stable_message_boxes) >= 2 and (input_boxes or title_boxes):
         return PageClassification(
             PageType.UNKNOWN,
             0.58,
@@ -117,6 +118,7 @@ def parse_visible_messages(result: OcrResult, layout: LayoutRegions) -> list[Par
     filtered = [
         box for index, box in enumerate(message_boxes)
         if box not in timeline["anchors"]
+        and not _looks_like_non_message_overlay(box, layout)
         and not _looks_like_sender_label(box, message_boxes[index + 1] if index + 1 < len(message_boxes) else None, layout)
     ]
     return [_message_from_box(box, layout, timeline["times"].get(box)) for box in filtered]
@@ -125,9 +127,10 @@ def parse_visible_messages(result: OcrResult, layout: LayoutRegions) -> list[Par
 def _message_from_box(box: OcrTextBox, layout: LayoutRegions, time_text: str | None = None) -> ParsedOcrMessage:
     center_x = (box.rect.left + box.rect.right) / 2
     midpoint = layout.message_rect.left + layout.message_rect.width * 0.54
-    speaker = Speaker.ME if center_x >= midpoint else Speaker.OTHER
-    edge_margin = max(8, round(layout.message_rect.height * 0.025))
-    partial = box.rect.top <= layout.message_rect.top + edge_margin or box.rect.bottom >= layout.message_rect.bottom - edge_margin
+    right_aligned = box.rect.right >= layout.message_rect.right - layout.message_rect.width * 0.08
+    left_aligned = box.rect.left <= layout.message_rect.left + layout.message_rect.width * 0.18
+    speaker = Speaker.ME if center_x >= midpoint or (right_aligned and not left_aligned) else Speaker.OTHER
+    partial = _is_edge_partial_box(box, layout)
     confidence = min(0.95, max(0.0, box.confidence - (0.08 if partial else 0.0)))
     reason = "根据消息区水平位置推断说话人"
     if partial:
@@ -141,6 +144,11 @@ def _message_from_box(box: OcrTextBox, layout: LayoutRegions, time_text: str | N
         reason=reason,
         time_text=time_text,
     )
+
+
+def _is_edge_partial_box(box: OcrTextBox, layout: LayoutRegions) -> bool:
+    edge_margin = max(8, round(layout.message_rect.height * 0.025))
+    return box.rect.top <= layout.message_rect.top + edge_margin or box.rect.bottom >= layout.message_rect.bottom - edge_margin
 
 
 def _overlap_ratio(left: Rect, right: Rect) -> float:
@@ -181,6 +189,22 @@ def _looks_like_sender_label(box: OcrTextBox, next_box: OcrTextBox | None, layou
     return 0 <= vertical_gap <= 18 and left_aligned and compact_label
 
 
+def _looks_like_non_message_overlay(box: OcrTextBox, layout: LayoutRegions) -> bool:
+    text = _compact_text(box.text)
+    if not text:
+        return True
+    if re.match(r"^[↑⬆上个]?\d{1,4}条新消息$", text):
+        return True
+    if re.match(r"^[^\d]{0,2}\d{1,4}条新消息$", text):
+        return True
+    center_x = (box.rect.left + box.rect.right) / 2
+    middle = layout.message_rect.left + layout.message_rect.width / 2
+    narrow = box.rect.width <= layout.message_rect.width * 0.36
+    if narrow and abs(center_x - middle) <= layout.message_rect.width * 0.22 and _looks_like_time_text(text):
+        return True
+    return False
+
+
 def _assign_time_anchors(boxes: list[OcrTextBox], layout: LayoutRegions) -> dict[str, object]:
     anchors: set[OcrTextBox] = set()
     times: dict[OcrTextBox, str] = {}
@@ -196,18 +220,27 @@ def _assign_time_anchors(boxes: list[OcrTextBox], layout: LayoutRegions) -> dict
 
 
 def _looks_like_time_anchor(box: OcrTextBox, layout: LayoutRegions) -> bool:
-    text = box.text.strip()
+    text = _compact_text(box.text)
     if not text or len(text) > 24:
         return False
     center_x = (box.rect.left + box.rect.right) / 2
     middle = layout.message_rect.left + layout.message_rect.width / 2
     if abs(center_x - middle) > layout.message_rect.width * 0.18:
         return False
+    return _looks_like_time_text(text)
+
+
+def _looks_like_time_text(text: str) -> bool:
+    value = _compact_text(text)
     patterns = [
         r"^\d{1,2}:\d{2}$",
-        r"^(上午|下午|晚上|中午|凌晨)?\s*\d{1,2}:\d{2}$",
-        r"^(昨天|今天)\s*(上午|下午|晚上|中午|凌晨)?\s*\d{1,2}:\d{2}$",
-        r"^\d{1,2}月\d{1,2}日\s*(上午|下午|晚上|中午|凌晨)?\s*\d{1,2}:\d{2}$",
-        r"^\d{4}[/-]\d{1,2}[/-]\d{1,2}\s*(上午|下午|晚上|中午|凌晨)?\s*\d{1,2}:\d{2}$",
+        r"^(上午|下午|晚上|中午|凌晨)?\d{1,2}:\d{2}$",
+        r"^(昨天|今天|周[一二三四五六日天]|星期[一二三四五六日天])(上午|下午|晚上|中午|凌晨)?\d{1,2}:\d{2}$",
+        r"^\d{1,2}月\d{1,2}日(上午|下午|晚上|中午|凌晨)?\d{1,2}:\d{2}$",
+        r"^\d{4}[/-]\d{1,2}[/-]\d{1,2}(上午|下午|晚上|中午|凌晨)?\d{1,2}:\d{2}$",
     ]
-    return any(re.match(pattern, text) for pattern in patterns)
+    return any(re.match(pattern, value) for pattern in patterns)
+
+
+def _compact_text(text: str) -> str:
+    return re.sub(r"\s+", "", text.strip())
