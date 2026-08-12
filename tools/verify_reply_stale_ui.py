@@ -63,6 +63,7 @@ def main() -> int:
         job_id=1,
         contact_id=first.id,
         hwnd=runtime.window.hwnd,
+        window_title=runtime.window.title,
         result=ReplyGenerationResult(
             True,
             "local_preview",
@@ -85,6 +86,7 @@ def main() -> int:
         job_id=2,
         contact_id=second.id,
         hwnd=runtime.window.hwnd,
+        window_title=runtime.window.title,
         result=ReplyGenerationResult(
             True,
             "local_preview",

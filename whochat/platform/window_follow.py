@@ -21,7 +21,7 @@ class TargetWindowFollowController(QObject):
         self.targets = targets or default_target_windows()
         self.foreground_only = foreground_only
         self._last_hwnd: int | None = None
-        self._last_signature: tuple[int, str, tuple[int, int, int, int], bool] | None = None
+        self._last_signature: tuple[object, ...] | None = None
         self._timer = QTimer(self)
         self._timer.setInterval(interval_ms)
         self._timer.timeout.connect(self.poll_once)
@@ -64,7 +64,19 @@ class TargetWindowFollowController(QObject):
                 return None
             window = max(windows, key=lambda item: (item.rect[2] - item.rect[0]) * (item.rect[3] - item.rect[1]))
             window = _as_background_test_window(window)
-        signature = (window.hwnd, window.title, window.rect, window.visible)
+        # Position alone is not enough. In relaxed/background mode a target
+        # can keep the same rect while losing foreground, becoming minimized,
+        # or changing its diagnostic safety state.
+        signature = (
+            window.hwnd,
+            window.title,
+            window.rect,
+            window.visible,
+            window.foreground,
+            window.minimized,
+            window.diagnostic,
+            window.target_app,
+        )
         if signature == self._last_signature:
             return window
         self._last_signature = signature

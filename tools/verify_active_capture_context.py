@@ -25,6 +25,7 @@ from whochat.core.models import ContactStatus
 from whochat.core.runtime import PageClassification, PageType, WindowState
 from whochat.platform.window_tracker import WindowInfo
 from whochat.services.bootstrap import build_services
+from whochat.services.reply_tasks import ReplyTaskResult
 from whochat.ui.floating_widget import FloatingWidget
 from whochat.ui.main_window import MainWindow
 
@@ -68,12 +69,24 @@ def main() -> int:
     )
     services.runtime._state = replace(restored, page=PageClassification(PageType.CHAT_DM, 0.9, "verify"), ocr_pending=True, pipeline_status="running")
     window.update_runtime_state(services.runtime.state)
-    if window._suggestion_result is not None:
+    if window._suggestion_result is not None or window._active_capture_contact() is not None:
         raise RuntimeError("new OCR round must not retain prior conversation suggestion")
     if any(button.isEnabled() for button in buttons):
         raise RuntimeError("new OCR round must disable reply copying until title confirmation")
+    delayed = ReplyTaskResult(
+        job_id=9,
+        contact_id=captured.id,
+        hwnd=301,
+        window_title="微信",
+        result=ReplyGenerationResult(True, "local_preview", [ReplySuggestion("旧", "不能出现", "low", "verify")], "Local Preview"),
+    )
+    window._on_reply_task_ready(delayed)
+    if window._suggestion_result is None or window._suggestion_result.allowed:
+        raise RuntimeError("reply returned during OCR recheck should be discarded")
+    if any(button.isEnabled() or button.property("reply_text") for button in buttons):
+        raise RuntimeError("delayed reply leaked into floating controls during OCR recheck")
 
-    print("active_contact_binding=passed window_clear=passed new_ocr_clear=passed")
+    print("active_contact_binding=passed window_clear=passed new_ocr_clear=passed delayed_reply=blocked")
     window.close()
     floating.close()
     app.quit()

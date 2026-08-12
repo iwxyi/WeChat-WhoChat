@@ -738,7 +738,7 @@ class MainWindow(QMainWindow):
             # A conversation can change without changing the desktop window
             # handle. Do not leave the previous contact's reply copyable while
             # the title fast-path is determining the new conversation.
-            self._suggestion_result = None
+            self._clear_active_capture_context("conversation_recheck")
         if self._page_status_value is not None:
             self._page_status_value.setText(state.page.page_type.value)
         if self._page_status_subtitle is not None:
@@ -1396,13 +1396,21 @@ class MainWindow(QMainWindow):
     def _on_reply_task_ready(self, task: ReplyTaskResult) -> None:
         current = self._build_reply_context()
         current_contact_id = current.contact.id if current.contact else None
-        if task.contact_id != current_contact_id or task.hwnd != current.runtime.window.hwnd:
+        runtime_ready = not current.runtime.ocr_pending and current.runtime.pipeline_status.startswith("finished:")
+        if (
+            task.contact_id != current_contact_id
+            or task.hwnd != current.runtime.window.hwnd
+            or task.window_title != current.runtime.window.title
+            or not runtime_ready
+        ):
             self.append_log(
                 (
                     "reply_suggestions_stale: "
                     f"job={task.job_id}, task_contact={task.contact_id or '-'}, "
                     f"current_contact={current_contact_id or '-'}, task_hwnd={task.hwnd or '-'}, "
-                    f"current_hwnd={current.runtime.window.hwnd or '-'}"
+                    f"current_hwnd={current.runtime.window.hwnd or '-'}, "
+                    f"task_title={task.window_title or '-'}, current_title={current.runtime.window.title or '-'}, "
+                    f"runtime_ready={runtime_ready}"
                 ),
                 "warning",
             )

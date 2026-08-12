@@ -119,9 +119,13 @@ def main() -> int:
         if focused is None or focused.hwnd != 2:
             raise RuntimeError(f"focused supported window should win, got {focused}")
         window_follow.foreground_window_handle = lambda: 999
+        strict_background = controller.poll_once()
+        if strict_background is not None:
+            raise RuntimeError(f"foreground-only mode should not fall back to a background target: {strict_background}")
+        controller.set_foreground_only(False)
         fallback = controller.poll_once()
         if fallback is None or fallback.hwnd != 1:
-            raise RuntimeError(f"largest supported window should be fallback, got {fallback}")
+            raise RuntimeError(f"relaxed mode should fall back to largest supported window, got {fallback}")
     finally:
         window_follow.find_target_windows = original_find
         window_follow.foreground_window_handle = original_foreground
