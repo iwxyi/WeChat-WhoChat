@@ -11,6 +11,8 @@ if str(ROOT) not in sys.path:
 
 from whochat.core.models import Speaker
 from whochat.core.runtime import LayoutRegions, Rect, RegionSource, TargetApp
+from whochat.ocr.models import OcrRegion, OcrResult, OcrTextBox
+from whochat.ocr.parser import parse_visible_messages
 from whochat.vision.bubbles import detect_bubbles
 
 
@@ -24,6 +26,8 @@ def main() -> int:
     # Dark WeChat commonly renders the user's accent as #00a361. Keep only a
     # thin text-like mark here so the fixture covers the real failure mode.
     draw.text((350, 170), "我的消息", fill=(0, 163, 97))
+    # A clipped message at the top edge must remain marked partial.
+    draw.text((350, 44), "顶部截断", fill=(0, 163, 97))
     image.save(output)
 
     layout = LayoutRegions(
@@ -47,6 +51,24 @@ def main() -> int:
         raise RuntimeError(f"green evidence was not classified as ME: {bubbles}")
     if any(item.rect.left < layout.message_rect.left for item in bubbles):
         raise RuntimeError(f"bubble escaped message region: {bubbles}")
+    parsed = parse_visible_messages(
+        OcrResult(
+            boxes=[
+                OcrTextBox("联系人", Rect(220, 10, 270, 30), 0.9, OcrRegion.TITLE, "fixture"),
+                OcrTextBox("我的消息", Rect(348, 168, 376, 185), 0.9, OcrRegion.MESSAGE, "fixture"),
+                OcrTextBox("顶部截断", Rect(348, 45, 382, 60), 0.9, OcrRegion.MESSAGE, "fixture"),
+            ],
+            source_image=str(output),
+            engine="fixture",
+        ),
+        layout,
+    )
+    if len(parsed) != 2 or any(item.speaker != Speaker.ME for item in parsed):
+        raise RuntimeError(f"parser did not use visual speaker evidence: {parsed}")
+    if not any(item.partial for item in parsed):
+        raise RuntimeError(f"edge bubble was not marked partial: {parsed}")
+    if not all("气泡=wechat_green/me" in item.reason for item in parsed):
+        raise RuntimeError(f"parser reason lacks bubble evidence: {parsed}")
     print(f"detected={[(item.speaker.value, item.rect.as_tuple(), item.confidence) for item in bubbles]}")
     return 0
 
