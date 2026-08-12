@@ -70,6 +70,7 @@ def main() -> int:
             OcrTextBox("联系人 A", Rect(430, 16, 520, 44), 0.9, OcrRegion.UNKNOWN, "verify"),
             OcrTextBox("星期三13:29", Rect(690, 92, 815, 122), 0.88, OcrRegion.UNKNOWN, "verify"),
             OcrTextBox("众48条新消息", Rect(875, 348, 1015, 382), 0.82, OcrRegion.UNKNOWN, "verify"),
+            OcrTextBox("共4条", Rect(690, 92, 740, 116), 0.82, OcrRegion.UNKNOWN, "verify"),
             OcrTextBox("这个别当成系统提示", Rect(460, 168, 740, 218), 0.88, OcrRegion.UNKNOWN, "verify"),
             OcrTextBox("右侧窄框也应该是我", Rect(900, 254, 1135, 304), 0.86, OcrRegion.UNKNOWN, "verify"),
             OcrTextBox("输入一些内容", Rect(430, 674, 650, 710), 0.8, OcrRegion.UNKNOWN, "verify"),
@@ -79,7 +80,7 @@ def main() -> int:
     )
     noisy_messages = parse_visible_messages(noisy_result, layout)
     noisy_texts = [item.text for item in noisy_messages]
-    if "星期三13:29" in noisy_texts or "众48条新消息" in noisy_texts:
+    if "星期三13:29" in noisy_texts or "众48条新消息" in noisy_texts or "共4条" in noisy_texts:
         raise RuntimeError(f"system overlays should not become chat records: {noisy_texts}")
     if len(noisy_messages) != 2:
         raise RuntimeError(f"expected 2 real messages after overlay filtering, got {noisy_messages}")

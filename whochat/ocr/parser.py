@@ -338,6 +338,8 @@ def _looks_like_non_message_overlay(box: OcrTextBox, layout: LayoutRegions) -> b
         return True
     if _looks_like_new_message_text(text) and _is_floating_new_message_hint(box, layout):
         return True
+    if _looks_like_message_count_text(text) and _is_message_count_hint(box, layout):
+        return True
     if _is_center_system_hint(box, layout) and _looks_like_time_text(text):
         return True
     return False
@@ -348,6 +350,19 @@ def _looks_like_new_message_text(text: str) -> bool:
         re.match(r"^[↑⬆上个]?\d{1,4}条新消息$", text)
         or re.match(r"^[^\d]{0,2}\d{1,4}条新消息$", text)
     )
+
+
+def _looks_like_message_count_text(text: str) -> bool:
+    value = _compact_text(text)
+    return bool(re.match(r"^(共|还有)\d{1,4}条(?:新消息)?$", value))
+
+
+def _is_message_count_hint(box: OcrTextBox, layout: LayoutRegions) -> bool:
+    center_ratio = _horizontal_ratio(box, layout)
+    width_ratio = box.rect.width / max(1, layout.message_rect.width)
+    height_ratio = box.rect.height / max(1, layout.message_rect.height)
+    top_ratio = (box.rect.top - layout.message_rect.top) / max(1, layout.message_rect.height)
+    return 0.25 <= center_ratio <= 0.75 and width_ratio <= 0.28 and height_ratio <= 0.11 and top_ratio <= 0.20
 
 
 def _speaker_from_geometry(box: OcrTextBox, layout: LayoutRegions, bubble: BubbleRegion | None = None) -> tuple[Speaker, str]:
