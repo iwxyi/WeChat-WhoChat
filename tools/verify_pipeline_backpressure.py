@@ -88,8 +88,11 @@ def _state() -> RuntimeState:
         process_name="WeChat.exe",
         rect=Rect(0, 0, 1000, 800),
         state=WindowState.VISIBLE,
+        bubble_profile="wechat_green",
     )
     layout = LayoutRegions(
+        target_app=TargetApp.WECHAT,
+        bubble_profile="wechat_green",
         window_rect=Rect(0, 0, 1000, 800),
         nav_rect=Rect(0, 0, 70, 800),
         chat_list_rect=Rect(70, 0, 320, 800),

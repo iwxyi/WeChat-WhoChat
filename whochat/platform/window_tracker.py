@@ -18,6 +18,7 @@ class WindowInfo:
     minimized: bool = False
     diagnostic: str = ""
     foreground: bool = True
+    bubble_profile: str = "auto"
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,7 @@ def find_target_windows(targets: list[TargetWindowConfig]) -> list[WindowInfo]:
                     minimized=minimized,
                     diagnostic=_window_diagnostic(title, process_name, minimized, foreground),
                     foreground=foreground,
+                    bubble_profile=target.bubble_profile,
                 )
             )
         except Exception:

@@ -3,9 +3,12 @@ from __future__ import annotations
 import re
 from dataclasses import replace
 
+from pathlib import Path
+
 from whochat.core.models import Speaker
 from whochat.core.runtime import LayoutRegions, PageClassification, PageType, Rect
 from whochat.ocr.models import OcrRegion, OcrResult, OcrTextBox, ParsedOcrMessage
+from whochat.vision.bubbles import BubbleRegion, bubble_for_box, detect_bubbles
 
 
 def normalize_ocr_regions(result: OcrResult, layout: LayoutRegions) -> OcrResult:
@@ -109,6 +112,7 @@ def _contains_any(value: str, markers: tuple[str, ...]) -> bool:
 
 def parse_visible_messages(result: OcrResult, layout: LayoutRegions) -> list[ParsedOcrMessage]:
     normalized = normalize_ocr_regions(result, layout)
+    bubbles = detect_bubbles(Path(normalized.source_image), layout) if normalized.source_image else []
     message_boxes = [
         box for box in normalized.boxes
         if box.region == OcrRegion.MESSAGE and box.text.strip() and box.confidence >= 0.35
@@ -124,7 +128,13 @@ def parse_visible_messages(result: OcrResult, layout: LayoutRegions) -> list[Par
     ]
     merged = _merge_message_fragments(filtered, layout)
     return [
-        _message_from_box(box, layout, timeline["times"].get(box), sender_labels["senders"].get(box))
+        _message_from_box(
+            box,
+            layout,
+            timeline["times"].get(box),
+            sender_labels["senders"].get(box),
+            bubble_for_box(box.rect, bubbles),
+        )
         for box in merged
     ]
 
@@ -199,13 +209,16 @@ def _message_from_box(
     layout: LayoutRegions,
     time_text: str | None = None,
     sender_name: str | None = None,
+    bubble: BubbleRegion | None = None,
 ) -> ParsedOcrMessage:
-    speaker, geometry_reason = _speaker_from_geometry(box, layout)
+    speaker, geometry_reason = _speaker_from_geometry(box, layout, bubble)
     partial = _is_edge_partial_box(box, layout)
     confidence = min(0.95, max(0.0, box.confidence - (0.08 if partial else 0.0)))
     reason = f"根据消息区坐标推断说话人：{geometry_reason}"
     if sender_name:
         reason += f"；上方坐标标签识别为发送者：{sender_name}"
+    if bubble is not None:
+        reason += f"；气泡={bubble.profile}/{bubble.speaker.value}"
     if partial:
         reason += "；文本接近消息区边缘，标记为 partial"
     return ParsedOcrMessage(
@@ -337,7 +350,13 @@ def _looks_like_new_message_text(text: str) -> bool:
     )
 
 
-def _speaker_from_geometry(box: OcrTextBox, layout: LayoutRegions) -> tuple[Speaker, str]:
+def _speaker_from_geometry(box: OcrTextBox, layout: LayoutRegions, bubble: BubbleRegion | None = None) -> tuple[Speaker, str]:
+    if bubble is not None:
+        reason = (
+            f"bubble_rect={bubble.rect.as_tuple()} bubble_conf={bubble.confidence:.2f} "
+            f"bubble_partial={bubble.partial} profile={bubble.profile}"
+        )
+        return bubble.speaker, reason
     center_ratio = _horizontal_ratio(box, layout)
     left_ratio = _edge_ratio(box.rect.left, layout)
     right_ratio = _edge_ratio(box.rect.right, layout)

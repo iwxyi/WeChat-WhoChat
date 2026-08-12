@@ -84,11 +84,14 @@ class WindowSnapshot:
     app_label: str = "微信"
     diagnostic: str = ""
     foreground: bool = True
+    bubble_profile: str = "auto"
     observed_at: str = field(default_factory=utc_now_iso)
 
 
 @dataclass(frozen=True)
 class LayoutRegions:
+    target_app: TargetApp
+    bubble_profile: str
     window_rect: Rect
     nav_rect: Rect
     chat_list_rect: Rect
@@ -156,6 +159,8 @@ class LayoutCalibration:
 
 def layout_from_calibration(calibration: LayoutCalibration, window_rect: Rect) -> LayoutRegions:
     return LayoutRegions(
+        target_app=calibration.target,
+        bubble_profile="wechat_green" if calibration.target == TargetApp.WECHAT else "geometry",
         window_rect=window_rect,
         nav_rect=calibration.nav_rect.to_absolute(window_rect),
         chat_list_rect=calibration.chat_list_rect.to_absolute(window_rect),
@@ -232,6 +237,7 @@ def missing_runtime_state(reason: str = "未发现目标窗口") -> RuntimeState
         process_name="",
         rect=None,
         state=WindowState.MISSING,
+        bubble_profile="auto",
     )
     return RuntimeState(
         window=window,

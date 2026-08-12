@@ -27,6 +27,7 @@ def main() -> int:
             process_name="WeChat.exe",
             rect=rect,
             state=WindowState.VISIBLE,
+            bubble_profile="wechat_green",
         )
         layout = adapter.estimate_layout(snapshot)
         if layout is None:

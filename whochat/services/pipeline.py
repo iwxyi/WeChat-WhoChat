@@ -419,6 +419,8 @@ def _dedupe_ocr_boxes(boxes: list[OcrTextBox]) -> list[OcrTextBox]:
 
 def _layout_relative_to_image(layout: LayoutRegions, origin_left: int, origin_top: int) -> LayoutRegions:
     return LayoutRegions(
+        target_app=layout.target_app,
+        bubble_profile=layout.bubble_profile,
         window_rect=_shift_rect(layout.window_rect, -origin_left, -origin_top),
         nav_rect=_shift_rect(layout.nav_rect, -origin_left, -origin_top),
         chat_list_rect=_shift_rect(layout.chat_list_rect, -origin_left, -origin_top),

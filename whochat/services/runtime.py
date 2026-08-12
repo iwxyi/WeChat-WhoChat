@@ -146,4 +146,5 @@ def _window_info_from_state(state: RuntimeState) -> WindowInfo | None:
         app_label=state.window.app_label,
         diagnostic=state.window.diagnostic,
         foreground=state.window.foreground,
+        bubble_profile=state.window.bubble_profile,
     )

@@ -72,6 +72,7 @@ class WeChatAdapter(PlatformAdapter):
             app_label=window.app_label or ("微信" if self._target_from_window(window) == TargetApp.WECHAT else "通用聊天"),
             diagnostic=window.diagnostic,
             foreground=window.foreground,
+            bubble_profile=window.bubble_profile,
         )
 
     def estimate_layout(self, window: WindowSnapshot) -> LayoutRegions | None:
@@ -86,7 +87,21 @@ class WeChatAdapter(PlatformAdapter):
         calibration_target = TargetApp.WECHAT if window.target == TargetApp.WECHAT else TargetApp.GENERIC_CHAT
         calibration = self.calibrations.get_active(calibration_target) if self.calibrations else None
         if calibration:
-            return layout_from_calibration(calibration, rect)
+            layout = layout_from_calibration(calibration, rect)
+            return LayoutRegions(
+                target_app=layout.target_app,
+                bubble_profile=window.bubble_profile if window.bubble_profile != "auto" else layout.bubble_profile,
+                window_rect=layout.window_rect,
+                nav_rect=layout.nav_rect,
+                chat_list_rect=layout.chat_list_rect,
+                content_rect=layout.content_rect,
+                title_rect=layout.title_rect,
+                message_rect=layout.message_rect,
+                input_rect=layout.input_rect,
+                confidence=layout.confidence,
+                source=layout.source,
+                reason=layout.reason,
+            )
 
         profile = _wechat_layout_profile(width, height) if window.target == TargetApp.WECHAT else _generic_layout_profile(width, height)
         nav_width = _clamp(round(width * profile.nav_ratio), profile.nav_min, profile.nav_max)
@@ -112,6 +127,8 @@ class WeChatAdapter(PlatformAdapter):
         platform_label = "微信 PC" if window.target == TargetApp.WECHAT else "通用聊天"
         reason = f"基于{platform_label} {profile.name} 布局 profile 的几何先验；优先使用相对比例并保留内容区最小宽度"
         return LayoutRegions(
+            target_app=window.target,
+            bubble_profile=window.bubble_profile,
             window_rect=rect,
             nav_rect=nav,
             chat_list_rect=chat_list,

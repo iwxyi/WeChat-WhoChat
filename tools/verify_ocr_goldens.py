@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from whochat.core.runtime import LayoutRegions, Rect, RegionSource
+from whochat.core.runtime import LayoutRegions, Rect, RegionSource, TargetApp
 from whochat.ocr.models import OcrRegion, OcrResult, OcrTextBox
 from whochat.ocr.parser import classify_page_from_ocr, normalize_ocr_regions, parse_visible_messages
 
@@ -78,6 +78,8 @@ def _verify_fixture(path: Path) -> None:
 
 def _layout_from_json(data: dict[str, Any]) -> LayoutRegions:
     return LayoutRegions(
+        target_app=TargetApp.WECHAT,
+        bubble_profile="wechat_green",
         window_rect=_rect(data["window_rect"]),
         nav_rect=_rect(data["nav_rect"]),
         chat_list_rect=_rect(data["chat_list_rect"]),

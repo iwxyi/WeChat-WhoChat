@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from whochat.config import OcrConfig
-from whochat.core.runtime import LayoutRegions, Rect, RegionSource
+from whochat.core.runtime import LayoutRegions, Rect, RegionSource, TargetApp
 from whochat.ocr.engine import create_ocr_engine
 from whochat.ocr.parser import classify_page_from_ocr, normalize_ocr_regions, parse_visible_messages
 
@@ -81,6 +81,8 @@ def load_layout(image_path: Path, layout_path: Path | None) -> LayoutRegions:
         return _default_layout(window)
     data = json.loads(layout_path.read_text(encoding="utf-8"))
     return LayoutRegions(
+        target_app=TargetApp(str(data.get("target_app", TargetApp.WECHAT.value))),
+        bubble_profile=str(data.get("bubble_profile", "wechat_green")),
         window_rect=_rect_from_json(data.get("window_rect"), window),
         nav_rect=_rect_from_json(data["nav_rect"], window),
         chat_list_rect=_rect_from_json(data["chat_list_rect"], window),
@@ -100,6 +102,8 @@ def _default_layout(window: Rect) -> LayoutRegions:
     title_bottom = round(window.height * 0.105)
     input_top = round(window.height * 0.74)
     return LayoutRegions(
+        target_app=TargetApp.WECHAT,
+        bubble_profile="wechat_green",
         window_rect=window,
         nav_rect=Rect(0, 0, nav_right, window.height),
         chat_list_rect=Rect(nav_right, 0, list_right, window.height),

@@ -8,7 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from whochat.core.models import Speaker
-from whochat.core.runtime import PageType, Rect
+from whochat.core.runtime import PageType, Rect, TargetApp
 from whochat.ocr.engine import PreviewOcrEngine
 from whochat.ocr.models import OcrRegion, OcrResult, OcrTextBox
 from whochat.ocr.parser import classify_page_from_ocr, normalize_ocr_regions, parse_visible_messages
@@ -22,6 +22,8 @@ def main() -> int:
     layout = adapter.estimate_layout(window)
     if layout is None:
         raise RuntimeError("layout missing")
+    if layout.target_app != TargetApp.WECHAT:
+        raise RuntimeError(f"expected wechat layout profile, got {layout.target_app}")
 
     result = OcrResult(
         boxes=[

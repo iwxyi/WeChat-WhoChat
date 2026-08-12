@@ -14,7 +14,7 @@ os.environ["WHOCHAT_DB_PATH"] = str(ROOT / "tmp" / "ocr_stability_verify" / "who
 os.environ["WHOCHAT_PADDLEOCR_FAILURE_COOLDOWN_SECONDS"] = "2"
 
 from whochat.config import OcrConfig
-from whochat.core.runtime import LayoutRegions, Rect, RegionSource
+from whochat.core.runtime import LayoutRegions, Rect, RegionSource, TargetApp
 from whochat.ocr.engine import PaddleOcrEngine
 from whochat.ocr.models import OcrResult
 
@@ -48,6 +48,8 @@ def main() -> int:
 
 def _layout() -> LayoutRegions:
     return LayoutRegions(
+        target_app=TargetApp.WECHAT,
+        bubble_profile="wechat_green",
         window_rect=Rect(0, 0, 1000, 800),
         nav_rect=Rect(0, 0, 70, 800),
         chat_list_rect=Rect(70, 0, 320, 800),

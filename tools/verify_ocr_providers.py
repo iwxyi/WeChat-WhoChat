@@ -18,7 +18,7 @@ os.environ["WHOCHAT_DB_PATH"] = str(DATA_DIR / "whochat.db")
 from PIL import Image
 
 from whochat.config import AppConfig, ConfigStore
-from whochat.core.runtime import LayoutRegions, Rect, RegionSource
+from whochat.core.runtime import LayoutRegions, Rect, RegionSource, TargetApp
 from whochat.ocr.engine import PaddleOcrEngine, PreviewOcrEngine, RapidOcrEngine, create_ocr_engine
 
 
@@ -27,6 +27,8 @@ def main() -> int:
     image_path.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", (320, 220), "white").save(image_path)
     layout = LayoutRegions(
+        target_app=TargetApp.WECHAT,
+        bubble_profile="wechat_green",
         window_rect=Rect(0, 0, 320, 220),
         nav_rect=Rect(0, 0, 40, 220),
         chat_list_rect=Rect(40, 0, 120, 220),

@@ -94,4 +94,5 @@ def _as_background_test_window(window: WindowInfo) -> WindowInfo:
         minimized=window.minimized,
         diagnostic="后台测试模式：目标窗口不是前台，截图可能被遮挡",
         foreground=False,
+        bubble_profile=window.bubble_profile,
     )

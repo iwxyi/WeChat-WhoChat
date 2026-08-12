@@ -213,6 +213,8 @@ class CalibrationDialog(QDialog):
         input_rect = Rect(content.left, input_top, content.right, window.bottom)
         message = Rect(content.left, title.bottom, content.right, input_rect.top)
         return LayoutRegions(
+            target_app=self._layout.target_app,
+            bubble_profile=self._layout.bubble_profile,
             window_rect=window,
             nav_rect=nav,
             chat_list_rect=chat_list,

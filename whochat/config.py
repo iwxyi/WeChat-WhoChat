@@ -69,6 +69,7 @@ class TargetWindowConfig:
     app_id: str
     label: str
     enabled: bool
+    bubble_profile: str = "auto"
     process_names: list[str] = field(default_factory=list)
     title_keywords: list[str] = field(default_factory=list)
     exclude_title_keywords: list[str] = field(default_factory=list)
@@ -145,6 +146,7 @@ def default_target_windows() -> list[TargetWindowConfig]:
             app_id="wechat",
             label="微信",
             enabled=True,
+            bubble_profile="wechat_green",
             process_names=["Weixin.exe", "WeChat.exe", "WeChatAppEx.exe"],
             title_keywords=["微信", "WeChat"],
             exclude_title_keywords=["图片和视频", "设置", "聊天记录", "转发", "发送给", "选择联系人"],
@@ -153,6 +155,7 @@ def default_target_windows() -> list[TargetWindowConfig]:
             app_id="telegram",
             label="Telegram",
             enabled=False,
+            bubble_profile="geometry",
             process_names=["Telegram.exe"],
             title_keywords=["Telegram"],
             exclude_title_keywords=[],
@@ -161,6 +164,7 @@ def default_target_windows() -> list[TargetWindowConfig]:
             app_id="generic_chat",
             label="通用聊天",
             enabled=False,
+            bubble_profile="geometry",
             process_names=[],
             title_keywords=[],
             exclude_title_keywords=[],
@@ -185,6 +189,7 @@ def _load_targets(value: Any) -> list[TargetWindowConfig]:
                     app_id=app_id,
                     label=label,
                     enabled=bool(item.get("enabled", False)),
+                    bubble_profile=str(item.get("bubble_profile", "auto")).strip() or "auto",
                     process_names=_string_list(item.get("process_names")),
                     title_keywords=_string_list(item.get("title_keywords")),
                     exclude_title_keywords=_string_list(item.get("exclude_title_keywords")),
