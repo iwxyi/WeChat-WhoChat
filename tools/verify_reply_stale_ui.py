@@ -54,6 +54,7 @@ def main() -> int:
     window._config.ai.api_key = ""
     floating = FloatingWidget()
     window.attach_floating_widget(floating)
+    window._set_active_capture_contact(second, runtime.window.hwnd)
     window._reload_contact_list(second.id)
     window._render_contact_detail(second)
     window._refresh_overview_data()

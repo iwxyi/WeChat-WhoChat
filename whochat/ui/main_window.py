@@ -648,6 +648,8 @@ class MainWindow(QMainWindow):
         self._memory_tabs: QTabWidget | None = None
         self._suggestions_panel: QFrame | None = None
         self._suggestion_result: ReplyGenerationResult | None = None
+        self._active_capture_contact_id: str | None = None
+        self._active_capture_hwnd: int | None = None
         self._privacy_long_memory: QCheckBox | None = None
         self._privacy_debug_screenshots: QCheckBox | None = None
         self._privacy_trim_cloud: QCheckBox | None = None
@@ -728,6 +730,15 @@ class MainWindow(QMainWindow):
         self._log_text.append(line)
 
     def update_runtime_state(self, state: RuntimeState) -> None:
+        if state.window.hwnd != self._active_capture_hwnd:
+            self._clear_active_capture_context("window_changed")
+        if state.window.state != WindowState.VISIBLE or not state.capture_decision.should_capture:
+            self._clear_active_capture_context("window_unavailable")
+        elif state.ocr_pending and state.pipeline_status == "running":
+            # A conversation can change without changing the desktop window
+            # handle. Do not leave the previous contact's reply copyable while
+            # the title fast-path is determining the new conversation.
+            self._suggestion_result = None
         if self._page_status_value is not None:
             self._page_status_value.setText(state.page.page_type.value)
         if self._page_status_subtitle is not None:
@@ -981,6 +992,7 @@ class MainWindow(QMainWindow):
             f"contact={ingestion.contact.display_name if ingestion.contact else '-'}"
         )
         if ingestion.contact:
+            self._set_active_capture_contact(ingestion.contact, _result.hwnd)
             self._reload_contact_list(select_contact_id=ingestion.contact.id)
             self._render_contact_detail(ingestion.contact)
         self._refresh_overview_data()
@@ -998,6 +1010,7 @@ class MainWindow(QMainWindow):
         )
         self._reload_contact_list(select_contact_id=ingestion.contact.id if ingestion.contact else None)
         if ingestion.contact:
+            self._set_active_capture_contact(ingestion.contact, _result.hwnd)
             self._render_contact_detail(ingestion.contact)
         self._refresh_overview_data()
         if self._runtime_text is not None:
@@ -1140,6 +1153,31 @@ class MainWindow(QMainWindow):
         recent = self._services.contacts.list_recent(1)
         return recent[0] if recent else None
 
+    def _active_capture_contact(self) -> Contact | None:
+        state = self._services.runtime.state
+        if state.window.state != WindowState.VISIBLE or state.window.hwnd is None:
+            return None
+        if self._active_capture_hwnd != state.window.hwnd or not self._active_capture_contact_id:
+            return None
+        return self._services.contacts.get(self._active_capture_contact_id)
+
+    def _set_active_capture_contact(self, contact: Contact, hwnd: int | None) -> None:
+        if hwnd is None or hwnd != self._services.runtime.state.window.hwnd:
+            return
+        changed = (self._active_capture_contact_id, self._active_capture_hwnd) != (contact.id, hwnd)
+        self._active_capture_contact_id = contact.id
+        self._active_capture_hwnd = hwnd
+        if changed:
+            self._suggestion_result = None
+
+    def _clear_active_capture_context(self, reason: str) -> None:
+        if self._active_capture_contact_id is None and self._active_capture_hwnd is None:
+            return
+        self._active_capture_contact_id = None
+        self._active_capture_hwnd = None
+        self._suggestion_result = None
+        self.append_log(f"active_capture_context_cleared: {reason}")
+
     def _refresh_overview_data(self) -> None:
         contact = self._current_contact()
         strategy = self._services.strategies.get(contact.strategy_id) if contact else self._services.strategies.get("default")
@@ -1204,7 +1242,13 @@ class MainWindow(QMainWindow):
     def _sync_floating_content(self, contact: Contact | None = None, strategy: Strategy | None = None) -> None:
         if self._floating is None:
             return
-        contact = contact if contact is not None else self._current_contact()
+        runtime = self._services.runtime.state
+        active_contact = self._active_capture_contact()
+        contact = active_contact
+        if runtime.window.state != WindowState.VISIBLE or runtime.window.rect is None:
+            if hasattr(self._floating, "disable_suggestions"):
+                self._floating.disable_suggestions()
+            return
         strategy = strategy if strategy is not None else (self._services.strategies.get(contact.strategy_id) if contact else self._services.strategies.get("default"))
         if hasattr(self._floating, "update_context"):
             steps = build_status_chain(
@@ -1218,14 +1262,14 @@ class MainWindow(QMainWindow):
             ai_step = next((step for step in steps if step.stage == "AI"), steps[-1])
             ocr_step = next((step for step in steps if step.stage == "OCR"), None)
             display_step = ocr_step if ocr_step is not None and ocr_step.state in {"运行中", "读取消息"} else ai_step
-            contact_name = contact.display_name if contact else (self._services.runtime.state.window.title or "未确认联系人")
+            contact_name = contact.display_name if contact else (runtime.window.title or "未确认联系人")
             group_name = strategy.name if strategy else "默认分组"
             self._floating.update_context(
                 contact_name=contact_name,
                 group_name=group_name,
                 status=f"{display_step.stage}:{display_step.state}",
                 action=display_step.action or display_step.reason,
-                app_label=self._services.runtime.state.window.app_label,
+                app_label=runtime.window.app_label,
             )
             if display_step.stage == "OCR":
                 if hasattr(self._floating, "disable_suggestions"):
@@ -1265,7 +1309,7 @@ class MainWindow(QMainWindow):
         ]
 
     def _build_reply_context(self) -> ReplyContext:
-        contact = self._current_contact()
+        contact = self._active_capture_contact()
         strategy = self._services.strategies.get(contact.strategy_id) if contact else self._services.strategies.get("default")
         messages = self._services.messages.list_for_contact(contact.id, 30) if contact else []
         memories = self._services.memories.list_for_contact(contact.id) if contact else []

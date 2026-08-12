@@ -17,6 +17,7 @@ class ReplyTaskResult:
     result: ReplyGenerationResult
     contact_id: str | None = None
     hwnd: int | None = None
+    window_title: str = ""
 
 
 class ReplyTaskService(QObject):
@@ -79,6 +80,7 @@ class ReplyTaskService(QObject):
             result=self.generator.generate(context, config),
             contact_id=context.contact.id if context.contact else None,
             hwnd=context.runtime.window.hwnd,
+            window_title=context.runtime.window.title,
         )
 
     def _on_done(self, future: Future) -> None:

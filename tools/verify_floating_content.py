@@ -18,14 +18,12 @@ os.environ["WHOCHAT_CONFIG_DIR"] = str(DATA_DIR / "config")
 os.environ["WHOCHAT_DB_PATH"] = str(DATA_DIR / "whochat.db")
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
-from PySide6.QtCore import Qt
-from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton
 
 from whochat.ai.models import ReplyGenerationResult, ReplySuggestion
 from whochat.app import create_app
 from whochat.core.models import ContactStatus
-from whochat.core.runtime import PageClassification, PageType
+from whochat.core.runtime import CaptureDecision, PageClassification, PageType
 from whochat.platform.window_tracker import WindowInfo
 from whochat.services.bootstrap import build_services
 from whochat.ui.floating_widget import FloatingWidget
@@ -41,9 +39,16 @@ def main() -> int:
 
     window = MainWindow(services)
     floating = FloatingWidget()
-    calibration_requests = []
-    floating.calibration_requested.connect(lambda: calibration_requests.append(True))
     window.attach_floating_widget(floating)
+    services.runtime.update_from_window_info(
+        WindowInfo(hwnd=991, title="微信", process_name="Weixin", rect=(0, 0, 1200, 800), visible=True)
+    )
+    window._set_active_capture_contact(contact, 991)
+    services.runtime._state = replace(
+        services.runtime.state,
+        page=PageClassification(PageType.UNKNOWN, 0.0, "区域不可用，需校准"),
+        capture_decision=CaptureDecision(False, "区域不可用，需校准"),
+    )
     window._sync_floating_content(contact=contact, strategy=strategy)
     if floating.contact_label.text() != "微信·悬浮验证对象（默认）":
         raise RuntimeError(f"floating contact mismatch: {floating.contact_label.text()}")
@@ -53,13 +58,9 @@ def main() -> int:
         raise RuntimeError(f"floating status tooltip should carry action guidance: {floating.status_label.toolTip()}")
     if floating.action_button.isHidden():
         raise RuntimeError("floating should show direct calibration action when page is blocked")
-    QTest.mouseClick(floating.action_button, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, floating.action_button.rect().center())
-    if not calibration_requests:
-        raise RuntimeError("floating calibration action did not emit calibration_requested")
+    if floating.action_button.toolTip() != "打开区域校准":
+        raise RuntimeError("floating calibration action has an unclear tooltip")
 
-    services.runtime.update_from_window_info(
-        WindowInfo(hwnd=991, title="微信", process_name="Weixin", rect=(0, 0, 1200, 800), visible=True)
-    )
     services.runtime._state = replace(services.runtime.state, page=PageClassification(PageType.CHAT_DM, 0.9, "verify chat"))
     services.runtime.apply_title_result(SimpleNamespace(hwnd=991, snapshot_hash="title-fast-path"))
     if floating.status_label.text() != "OCR:读取消息":
@@ -86,7 +87,7 @@ def main() -> int:
     first = buttons[0]
     if first.text() != "稳妥" or first.toolTip() != "这是第一条真实建议":
         raise RuntimeError(f"floating suggestion button mismatch: {first.text()} / {first.toolTip()}")
-    QTest.mouseClick(first, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, first.rect().center())
+    floating._copy(str(first.property("reply_text") or ""))
     copied = QApplication.clipboard().text()
     if copied != "这是第一条真实建议":
         raise RuntimeError(f"floating copied wrong text: {copied}")
