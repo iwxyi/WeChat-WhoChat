@@ -121,6 +121,22 @@ def main() -> int:
     if group_messages[1].sender_name is not None:
         raise RuntimeError(f"common short reply should not be treated as a sender label: {group_messages[1]}")
 
+    split_bubble_result = OcrResult(
+        boxes=[
+            OcrTextBox("联系人 A", Rect(430, 16, 520, 44), 0.9, OcrRegion.UNKNOWN, "verify"),
+            OcrTextBox("今天周三，，我以为今天", Rect(462, 160, 710, 210), 0.88, OcrRegion.UNKNOWN, "verify"),
+            OcrTextBox("周五了", Rect(714, 160, 782, 210), 0.86, OcrRegion.UNKNOWN, "verify"),
+            OcrTextBox("输入一些内容", Rect(430, 674, 650, 710), 0.8, OcrRegion.UNKNOWN, "verify"),
+        ],
+        source_image="verify.png",
+        engine="verify",
+    )
+    split_messages = parse_visible_messages(split_bubble_result, layout)
+    if [item.text for item in split_messages] != ["今天周三，，我以为今天周五了"]:
+        raise RuntimeError(f"same bubble OCR fragments should merge into one message: {split_messages}")
+    if split_messages[0].speaker != Speaker.OTHER:
+        raise RuntimeError(f"merged left bubble should remain OTHER: {split_messages[0]}")
+
     adapter_page = adapter.classify_page_with_ocr(window, layout, result)
     if adapter_page.page_type != PageType.CHAT_DM:
         raise RuntimeError("adapter did not use OCR page evidence")

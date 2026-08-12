@@ -40,7 +40,7 @@ def main() -> int:
         reply_running=False,
         provider_health=services.reply_generator.provider_health_summary(),
     )
-    _assert_step(unknown_steps, "页面", "阻断")
+    _assert_step(unknown_steps, "页面", "待确认")
     _assert_step(unknown_steps, "AI", "阻断")
     _assert_action_contains(unknown_steps, "页面", "立即采集")
     _assert_no_text(unknown_steps, "仅从窗口标题无法确认")

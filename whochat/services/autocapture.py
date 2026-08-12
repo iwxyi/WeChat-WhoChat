@@ -33,6 +33,8 @@ class AutoCaptureController(QObject):
         self._pending_state: RuntimeState | None = None
         self._last_submit_job_id: int | None = None
         self._last_completed_ms = 0
+        self._retry_delay_ms = 5000
+        self._last_window: WindowInfo | None = None
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.flush_pending)
@@ -56,12 +58,14 @@ class AutoCaptureController(QObject):
         if not enabled:
             self._pending = False
             self._pending_state = None
+            self._last_window = None
             self._timer.stop()
             self.status_changed.emit("auto_capture_disabled")
         else:
             self.status_changed.emit("auto_capture_enabled")
 
     def on_window_changed(self, window: WindowInfo | None) -> None:
+        self._last_window = window
         state = self.runtime.update_from_window_info(window)
         if not self.enabled:
             return
@@ -120,6 +124,7 @@ class AutoCaptureController(QObject):
             self.status_changed.emit("auto_capture_submit_failed")
         else:
             self.status_changed.emit(f"auto_capture_submitted:{job_id}")
+            self._schedule_retry()
         return job_id
 
     def _on_pipeline_discarded(self, reason: str) -> None:
@@ -129,12 +134,21 @@ class AutoCaptureController(QObject):
 
     def _on_pipeline_completed(self, reason: str) -> None:
         self._last_completed_ms = int(time.monotonic() * 1000)
-        if self.enabled and self._pending and not self._timer.isActive():
-            delay_ms = max(0, self.runtime.capture_gate.policy.ocr_min_interval_ms)
-            if getattr(getattr(self.pipeline, "ocr_engine", None), "name", "") == "paddleocr":
-                delay_ms = max(delay_ms, _heavy_ocr_min_interval_ms())
-            self._timer.start(delay_ms)
-            self.status_changed.emit(f"auto_capture_pending_after_{reason}:{delay_ms}ms")
+        if self.enabled:
+            self._schedule_retry(reason)
+
+    def _schedule_retry(self, reason: str = "finished") -> None:
+        if not self.enabled or self._last_window is None:
+            return
+        if self._timer.isActive():
+            return
+        self._pending = True
+        self._pending_state = self.runtime.update_from_window_info(self._last_window)
+        if self._pending_state is None:
+            return
+        delay_ms = self._retry_delay_ms
+        self._timer.start(delay_ms)
+        self.status_changed.emit(f"auto_capture_retry_after_{reason}:{delay_ms}ms")
 
 
 def _is_transient_capture_block(reason: str) -> bool:

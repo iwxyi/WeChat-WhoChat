@@ -58,8 +58,10 @@ def _page_step(runtime: RuntimeState, config: AppConfig) -> StatusStep:
         return StatusStep("页面", "通过", f"{runtime.page.page_type.value} / {runtime.page.confidence:.2f}", "可以生成回复建议")
     if not config.capture.pause_ai_on_unknown_page:
         return StatusStep("页面", "放行", f"{runtime.page.page_type.value} / {runtime.page.confidence:.2f}", "已允许未知页面继续，但建议确认内容无误")
+    if runtime.pipeline_status == "title_ready":
+        return StatusStep("页面", "待确认", "标题已识别，消息仍在 OCR 读取中", "等待消息识别完成后自动确认页面")
     if runtime.capture_decision.should_capture and runtime.pipeline_status in {"idle", "title_ready"}:
-        return StatusStep("页面", "阻断", runtime.page.reason, "点击“立即采集”用 OCR 确认聊天页")
+        return StatusStep("页面", "待确认", runtime.page.reason, "点击“立即采集”用 OCR 确认聊天页")
     return StatusStep("页面", "阻断", runtime.page.reason, "切换到聊天页，或点击校准重新指定区域")
 
 
@@ -138,7 +140,7 @@ def _ai_step(
             _contact_step(contact, config),
             _privacy_step(contact, strategy, config),
         ]
-        if step.state == "阻断"
+        if step.state == "阻断" or (step.stage == "页面" and step.state == "待确认")
     ]
     if blocking:
         first = blocking[0]

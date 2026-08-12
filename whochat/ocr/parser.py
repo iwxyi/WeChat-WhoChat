@@ -122,10 +122,76 @@ def parse_visible_messages(result: OcrResult, layout: LayoutRegions) -> list[Par
         and box not in sender_labels["labels"]
         and not _looks_like_non_message_overlay(box, layout)
     ]
+    merged = _merge_message_fragments(filtered, layout)
     return [
         _message_from_box(box, layout, timeline["times"].get(box), sender_labels["senders"].get(box))
-        for box in filtered
+        for box in merged
     ]
+
+
+def _merge_message_fragments(boxes: list[OcrTextBox], layout: LayoutRegions) -> list[OcrTextBox]:
+    if len(boxes) < 2:
+        return boxes
+    ordered = sorted(boxes, key=lambda box: (box.rect.top, box.rect.left))
+    merged: list[OcrTextBox] = []
+    current = ordered[0]
+    for box in ordered[1:]:
+        if _should_merge_fragments(current, box, layout):
+            current = _merge_boxes(current, box)
+        else:
+            merged.append(current)
+            current = box
+    merged.append(current)
+    return merged
+
+
+def _should_merge_fragments(left: OcrTextBox, right: OcrTextBox, layout: LayoutRegions) -> bool:
+    left_speaker, _left_reason = _speaker_from_geometry(left, layout)
+    right_speaker, _right_reason = _speaker_from_geometry(right, layout)
+    if left_speaker != right_speaker:
+        return False
+    if _is_edge_partial_box(left, layout) or _is_edge_partial_box(right, layout):
+        return False
+    if _looks_like_non_message_overlay(left, layout) or _looks_like_non_message_overlay(right, layout):
+        return False
+    same_row = _vertical_overlap_ratio(left.rect, right.rect) >= 0.45
+    close_rows = abs(right.rect.top - left.rect.bottom) <= max(10, round(layout.message_rect.height * 0.025))
+    horizontal_gap = right.rect.left - left.rect.right
+    adjacent_horizontal = -max(8, round(layout.message_rect.width * 0.015)) <= horizontal_gap <= max(56, round(layout.message_rect.width * 0.09))
+    aligned_left = abs(left.rect.left - right.rect.left) <= max(30, round(layout.message_rect.width * 0.05))
+    close_vertical = 0 <= right.rect.top - left.rect.bottom <= max(18, round(layout.message_rect.height * 0.035))
+    same_bubble_width = _merged_width(left.rect, right.rect) <= layout.message_rect.width * 0.72
+    if same_row and adjacent_horizontal and same_bubble_width:
+        return True
+    return close_rows and close_vertical and aligned_left and same_bubble_width
+
+
+def _merge_boxes(left: OcrTextBox, right: OcrTextBox) -> OcrTextBox:
+    same_row = _vertical_overlap_ratio(left.rect, right.rect) >= 0.45
+    separator = "" if same_row else "\n"
+    rect = Rect(
+        min(left.rect.left, right.rect.left),
+        min(left.rect.top, right.rect.top),
+        max(left.rect.right, right.rect.right),
+        max(left.rect.bottom, right.rect.bottom),
+    )
+    confidence = min(left.confidence, right.confidence)
+    return OcrTextBox(
+        text=f"{left.text.strip()}{separator}{right.text.strip()}",
+        rect=rect,
+        confidence=confidence,
+        region=left.region,
+        source=left.source,
+    )
+
+
+def _vertical_overlap_ratio(left: Rect, right: Rect) -> float:
+    overlap = max(0, min(left.bottom, right.bottom) - max(left.top, right.top))
+    return overlap / max(1, min(left.height, right.height))
+
+
+def _merged_width(left: Rect, right: Rect) -> int:
+    return max(left.right, right.right) - min(left.left, right.left)
 
 
 def _message_from_box(
