@@ -162,6 +162,10 @@ QLabel#TinyMuted {
   font-size: 11px;
   background: transparent;
 }
+QFrame#SuggestionList {
+  background: transparent;
+  border: none;
+}
 QLabel#MetricValue {
   color: #102a43;
   font-size: 18px;

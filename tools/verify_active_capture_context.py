@@ -22,7 +22,7 @@ from PySide6.QtWidgets import QPushButton
 from whochat.ai.models import ReplyGenerationResult, ReplySuggestion
 from whochat.app import create_app
 from whochat.core.models import ContactStatus
-from whochat.core.runtime import PageClassification, PageType, WindowState
+from whochat.core.runtime import CaptureDecision, PageClassification, PageType, WindowState
 from whochat.platform.window_tracker import WindowInfo
 from whochat.services.bootstrap import build_services
 from whochat.services.reply_tasks import ReplyTaskResult
@@ -58,6 +58,35 @@ def main() -> int:
     if not buttons[0].isEnabled():
         raise RuntimeError("active capture suggestion should be copyable")
 
+    window._render_reply_suggestions(ReplyGenerationResult(False, "blocked:provider_backoff", [], "Local Preview"))
+    if window._suggestion_result is None or not window._suggestion_result.allowed:
+        raise RuntimeError("a blocked replacement should retain the prior valid suggestion")
+    if buttons[0].property("reply_text") != "仅当前对象可复制":
+        raise RuntimeError("blocked replacement cleared the floating suggestion")
+    window._config.ai.provider = "Disabled"
+    window._sync_floating_content()
+    if not buttons[0].isEnabled() or buttons[0].property("reply_text") != "仅当前对象可复制":
+        raise RuntimeError("blocked status should not clear the prior floating suggestion")
+    window._config.ai.provider = "Local Preview"
+
+    services.runtime._state = replace(
+        services.runtime.state,
+        ocr_pending=True,
+        pipeline_status="running",
+        capture_decision=CaptureDecision(False, "OCR worker is running"),
+    )
+    window.update_runtime_state(services.runtime.state)
+    if window._suggestion_result is None or not window._suggestion_result.allowed:
+        raise RuntimeError("OCR refresh should retain the current conversation suggestion")
+    if not buttons[0].isEnabled():
+        raise RuntimeError("OCR refresh should keep the current conversation suggestion copyable")
+
+    services.runtime._state = replace(
+        services.runtime.state,
+        ocr_pending=False,
+        pipeline_status="finished:chat_dm",
+    )
+
     services.runtime.update_from_window_info(None)
     if window._active_capture_contact() is not None or window._suggestion_result is not None:
         raise RuntimeError("missing window must clear active contact and old reply")
@@ -81,12 +110,12 @@ def main() -> int:
         result=ReplyGenerationResult(True, "local_preview", [ReplySuggestion("旧", "不能出现", "low", "verify")], "Local Preview"),
     )
     window._on_reply_task_ready(delayed)
-    if window._suggestion_result is None or window._suggestion_result.allowed:
-        raise RuntimeError("reply returned during OCR recheck should be discarded")
+    if window._suggestion_result is None or window._suggestion_result.status != "blocked:reply_context_changed":
+        raise RuntimeError("reply returned for an unconfirmed new conversation should be blocked")
     if any(button.isEnabled() or button.property("reply_text") for button in buttons):
         raise RuntimeError("delayed reply leaked into floating controls during OCR recheck")
 
-    print("active_contact_binding=passed window_clear=passed new_ocr_clear=passed delayed_reply=blocked")
+    print("active_contact_binding=passed blocked_retained=passed ocr_refresh_retained=passed window_clear=passed new_ocr_clear=passed delayed_reply=blocked")
     window.close()
     floating.close()
     app.quit()

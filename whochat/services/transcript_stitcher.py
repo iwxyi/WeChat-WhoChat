@@ -30,6 +30,7 @@ class StitchResult:
     duplicate_visible: int
     pending_segment: int
     reason: str
+    pending_messages: tuple[StitchedMessage, ...] = ()
 
 
 class TranscriptStitcher:
@@ -51,10 +52,10 @@ class TranscriptStitcher:
         observed_at: str | None = None,
     ) -> StitchResult:
         observed_at = observed_at or utc_now_iso()
+        usable_messages = [message for message in visible_messages if _usable(message)]
         visible = [
-            _from_parsed(message, observed_at)
-            for message in visible_messages
-            if _usable(message)
+            _from_parsed(message, _observed_at_with_offset(observed_at, index))
+            for index, message in enumerate(usable_messages)
         ]
         current = self._transcripts.get(conversation_id, [])
         if not visible:
@@ -83,7 +84,15 @@ class TranscriptStitcher:
             self._transcripts[conversation_id] = merged
             return StitchResult(merged, len(head), 0, prepend_overlap, 0, "prepended_before_overlap")
 
-        return StitchResult(current, 0, 0, 0, len(visible), "no_reliable_overlap_pending_segment")
+        return StitchResult(
+            current,
+            0,
+            0,
+            0,
+            len(visible),
+            "no_reliable_overlap_pending_segment",
+            tuple(visible),
+        )
 
 
 def _usable(message: ParsedOcrMessage) -> bool:
@@ -96,6 +105,9 @@ def _usable(message: ParsedOcrMessage) -> bool:
 
 def _from_parsed(message: ParsedOcrMessage, observed_at: str) -> StitchedMessage:
     resolved_time, time_source = _resolve_message_time(message.time_text, observed_at)
+    if resolved_time is None:
+        resolved_time = observed_at
+        time_source = "ocr_observed"
     return StitchedMessage(
         speaker=message.speaker,
         text=message.text.strip(),
@@ -159,6 +171,13 @@ def _resolve_message_time(time_text: str | None, observed_at: str) -> tuple[str 
             return None, "observed"
         return resolved.isoformat(), "ocr"
     return None, "observed"
+
+
+def _observed_at_with_offset(observed_at: str, offset_ms: int) -> str:
+    observed = _parse_ts(observed_at)
+    if observed is None:
+        return observed_at
+    return (observed + timedelta(milliseconds=offset_ms)).isoformat()
 
 
 def _apply_day_part(hour: int, part: str | None) -> int:

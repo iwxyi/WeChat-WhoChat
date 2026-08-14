@@ -176,7 +176,11 @@ class CapturePipelineService(QObject):
             raise DuplicateSnapshotError(snapshot_hash)
         self._remember_snapshot_hash(snapshot_hash)
         title_started = time.monotonic()
-        title_ocr_result = _offset_ocr_result(self.ocr_engine.recognize(title_ocr_image_path, title_layout), title_offset)
+        title_ocr_result = _offset_ocr_result(
+            self.ocr_engine.recognize(title_ocr_image_path, title_layout),
+            title_offset,
+            image_path,
+        )
         title_elapsed_ms = _elapsed_ms(title_started)
         created_at = utc_now_iso()
         title_result = TitleOcrResult(
@@ -196,7 +200,11 @@ class CapturePipelineService(QObject):
         self.last_title_result = title_result
         self.title_ready.emit(title_result)
         content_started = time.monotonic()
-        content_ocr_result = _offset_ocr_result(self.ocr_engine.recognize(ocr_image_path, ocr_layout), offset)
+        content_ocr_result = _offset_ocr_result(
+            self.ocr_engine.recognize(ocr_image_path, ocr_layout),
+            offset,
+            image_path,
+        )
         content_elapsed_ms = _elapsed_ms(content_started)
         ocr_result = _merge_ocr_results(title_ocr_result, content_ocr_result)
         page = classify_page_from_ocr(ocr_result, state.layout)
@@ -434,10 +442,21 @@ def _layout_relative_to_image(layout: LayoutRegions, origin_left: int, origin_to
     )
 
 
-def _offset_ocr_result(result: OcrResult, offset: tuple[int, int]) -> OcrResult:
+def _offset_ocr_result(
+    result: OcrResult,
+    offset: tuple[int, int],
+    source_image: Path | str | None = None,
+) -> OcrResult:
     left, top = offset
     if left == 0 and top == 0:
-        return result
+        if source_image is None:
+            return result
+        return OcrResult(
+            boxes=result.boxes,
+            source_image=str(source_image),
+            engine=result.engine,
+            warning=result.warning,
+        )
     return OcrResult(
         boxes=[
             OcrTextBox(
@@ -449,7 +468,7 @@ def _offset_ocr_result(result: OcrResult, offset: tuple[int, int]) -> OcrResult:
             )
             for box in result.boxes
         ],
-        source_image=result.source_image,
+        source_image=str(source_image) if source_image is not None else result.source_image,
         engine=result.engine,
         warning=result.warning,
     )

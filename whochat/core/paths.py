@@ -19,7 +19,7 @@ def config_dir() -> Path:
     override = os.environ.get("WHOCHAT_CONFIG_DIR")
     if override:
         return Path(override)
-    return app_data_dir()
+    return app_data_dir() / "config"
 
 
 def database_path() -> Path:

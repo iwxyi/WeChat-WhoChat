@@ -8,7 +8,7 @@ from PySide6.QtCore import QObject, Signal
 
 from whochat.ai.models import ReplyContext, ReplyGenerationResult
 from whochat.config import AppConfig
-from whochat.services.reply import ReplyGenerationService
+from whochat.services.reply import ReplyGenerationService, context_hash
 
 
 @dataclass(frozen=True)
@@ -18,6 +18,7 @@ class ReplyTaskResult:
     contact_id: str | None = None
     hwnd: int | None = None
     window_title: str = ""
+    context_digest: str = ""
 
 
 class ReplyTaskService(QObject):
@@ -81,6 +82,7 @@ class ReplyTaskService(QObject):
             contact_id=context.contact.id if context.contact else None,
             hwnd=context.runtime.window.hwnd,
             window_title=context.runtime.window.title,
+            context_digest=context_hash(context),
         )
 
     def _on_done(self, future: Future) -> None:

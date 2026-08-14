@@ -302,4 +302,10 @@ MIGRATIONS: list[tuple[int, str]] = [
         CREATE INDEX idx_messages_contact_sender ON messages(contact_id, sender_name);
         """,
     ),
+    (
+        13,
+        """
+        UPDATE contacts SET allow_cloud_ai = 1 WHERE allow_cloud_ai = 0;
+        """,
+    ),
 ]

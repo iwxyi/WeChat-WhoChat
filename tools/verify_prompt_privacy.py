@@ -95,6 +95,8 @@ def main() -> int:
 
     preview = build_prompt_preview(context, config)
     combined = preview.combined_text
+    if "JSON" not in preview.user_prompt:
+        raise RuntimeError("cloud user prompt must explicitly request JSON for compatible providers")
     for raw in ["13812345678", "user@example.com", "https://example.com", "123456789012345", "sk-very-secret-token-value"]:
         if raw in combined:
             raise RuntimeError(f"preview leaked sensitive text: {raw}")

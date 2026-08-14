@@ -56,8 +56,6 @@ class WeChatAdapter(PlatformAdapter):
         rect = Rect.from_tuple(window.rect)
         if window.minimized:
             state = WindowState.MINIMIZED
-        elif not window.foreground:
-            state = WindowState.UNAVAILABLE
         elif not window.visible:
             state = WindowState.UNAVAILABLE
         else:

@@ -44,8 +44,8 @@ def test_ai_connection(config: AppConfig) -> AIConnectionTestResult:
         "model": config.ai.model,
         "temperature": 0,
         "messages": [
-            {"role": "system", "content": "You are a connection test endpoint. Return compact JSON."},
-            {"role": "user", "content": "Return {\"ok\":true}."},
+            {"role": "system", "content": "You are a connection test endpoint. Return compact json."},
+            {"role": "user", "content": "Return json: {\"ok\":true}."},
         ],
         "response_format": {"type": "json_object"},
     }
@@ -65,8 +65,15 @@ def test_ai_connection(config: AppConfig) -> AIConnectionTestResult:
             data = json.loads(raw_body)
     except urllib.error.HTTPError as exc:
         elapsed = _elapsed_ms(started)
-        _log_ai_provider(endpoint, elapsed, f"connection_test_http_error:{exc.code}", f"reason={exc.reason}")
-        return AIConnectionTestResult(False, f"http_error:{exc.code}", provider, _http_error_message(exc.code, exc.reason), elapsed)
+        body = _read_http_error_body(exc)
+        _log_ai_provider(endpoint, elapsed, f"connection_test_http_error:{exc.code}", f"reason={exc.reason} body={_clip(body, 500)}")
+        return AIConnectionTestResult(
+            False,
+            f"http_error:{exc.code}",
+            provider,
+            _http_error_message(exc.code, exc.reason, body),
+            elapsed,
+        )
     except (urllib.error.URLError, TimeoutError) as exc:
         elapsed = _elapsed_ms(started)
         _log_ai_provider(endpoint, elapsed, "connection_test_transport_error", str(exc))
@@ -161,8 +168,9 @@ def _generate_openai_compatible(context: ReplyContext, config: AppConfig) -> Rep
             _log_ai_provider(endpoint, _elapsed_ms(started), "http_ok", f"status={getattr(response, 'status', '-')}")
             data = json.loads(raw_body)
     except urllib.error.HTTPError as exc:
-        _log_ai_provider(endpoint, _elapsed_ms(started), f"http_error:{exc.code}", f"reason={exc.reason}")
-        return ReplyGenerationResult(False, f"AI 请求失败：{_http_error_message(exc.code, exc.reason)}", [], config.ai.provider)
+        body = _read_http_error_body(exc)
+        _log_ai_provider(endpoint, _elapsed_ms(started), f"http_error:{exc.code}", f"reason={exc.reason} body={_clip(body, 500)}")
+        return ReplyGenerationResult(False, f"AI 请求失败：{_http_error_message(exc.code, exc.reason, body)}", [], config.ai.provider)
     except (urllib.error.URLError, TimeoutError) as exc:
         _log_ai_provider(endpoint, _elapsed_ms(started), "transport_error", str(exc))
         return ReplyGenerationResult(False, f"AI 请求失败：{exc}", [], config.ai.provider)
@@ -221,7 +229,8 @@ def _chat_completions_endpoint(base_url: str) -> str:
     return value + "/chat/completions"
 
 
-def _http_error_message(code: int, reason: str) -> str:
+def _http_error_message(code: int, reason: str, body: str = "") -> str:
+    detail = _provider_error_detail(body)
     if code == 401:
         return "HTTP 401：认证失败，请检查 API Key 是否属于当前服务商，接口地址是否填到对应 Provider 的 /v1"
     if code == 403:
@@ -230,7 +239,38 @@ def _http_error_message(code: int, reason: str) -> str:
         return "HTTP 404：接口或模型不存在，请检查接口地址和模型名称"
     if code == 429:
         return "HTTP 429：请求过于频繁或额度不足，请稍后重试或检查服务商额度"
+    if detail:
+        return f"HTTP {code}: {detail}"
     return f"HTTP {code}: {reason}"
+
+
+def _read_http_error_body(exc: urllib.error.HTTPError) -> str:
+    try:
+        return exc.read().decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def _provider_error_detail(body: str) -> str:
+    if not body.strip():
+        return ""
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return _clip(" ".join(body.split()), 240)
+    error = data.get("error") if isinstance(data, dict) else None
+    if isinstance(error, dict):
+        message = str(error.get("message") or "").strip()
+        code = str(error.get("code") or "").strip()
+        if message and code:
+            return f"{message} ({code})"
+        if message:
+            return message
+    if isinstance(data, dict):
+        message = str(data.get("message") or data.get("detail") or "").strip()
+        if message:
+            return message
+    return _clip(str(data), 240)
 
 
 def _provider_headers(api_key: str) -> dict[str, str]:

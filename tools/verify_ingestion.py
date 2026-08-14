@@ -206,6 +206,24 @@ def main() -> int:
     if len(messages) != 2:
         raise RuntimeError(f"stored message count mismatch: {len(messages)}")
 
+    no_overlap_result = PipelineResult(
+        **{
+            **result.__dict__,
+            "job_id": 24,
+            "snapshot_hash": "no_overlap",
+            "messages": [
+                ParsedOcrMessage(Speaker.OTHER, "没有重叠的新可见消息", _inside(state.layout.message_rect, 0.08, 0.15, 0.44, 0.24), 0.88, False, "verify"),
+                ParsedOcrMessage(Speaker.ME, "这段也应保存到聊天记录", _inside(state.layout.message_rect, 0.58, 0.34, 0.92, 0.43), 0.86, False, "verify"),
+            ],
+        }
+    )
+    no_overlap = services.ingestion.ingest_pipeline_result(no_overlap_result)
+    if no_overlap.inserted_messages != 2 or "persisted_visible_fallback" not in no_overlap.reason:
+        raise RuntimeError(f"no-overlap visible messages should persist: {no_overlap}")
+    messages = services.messages.list_for_contact(accepted.contact.id)
+    if len(messages) != 4:
+        raise RuntimeError(f"no-overlap messages were not stored: {len(messages)}")
+
     time_result = PipelineResult(
         **{
             **result.__dict__,

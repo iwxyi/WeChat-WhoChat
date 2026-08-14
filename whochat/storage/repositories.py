@@ -186,7 +186,7 @@ class ContactRepository:
                 conversation_type=conversation_type,
                 status=ContactStatus.UNCONFIRMED,
                 strategy_id=strategy_id,
-                allow_cloud_ai=False,
+                allow_cloud_ai=True,
                 remark="",
                 avatar_fingerprint="",
                 merged_into=None,

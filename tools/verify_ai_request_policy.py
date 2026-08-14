@@ -74,8 +74,10 @@ def main() -> int:
     duplicate_service = ReplyGenerationService(services.generation_logs, duplicate_generator)
     first = duplicate_service.generate(context, duplicate_config)
     duplicate = duplicate_service.generate(context, duplicate_config)
-    if not first.allowed or duplicate.allowed or "duplicate_context" not in duplicate.status:
+    if not first.allowed or not duplicate.allowed or duplicate.status != "ai_cached:unchanged_context":
         raise RuntimeError(f"duplicate policy failed: first={first.status} duplicate={duplicate.status}")
+    if duplicate.suggestions != first.suggestions:
+        raise RuntimeError("duplicate policy should retain the first successful suggestions")
     if duplicate_generator.calls != 1:
         raise RuntimeError(f"duplicate policy should avoid generator call, calls={duplicate_generator.calls}")
 
@@ -87,7 +89,7 @@ def main() -> int:
     cooldown_service = ReplyGenerationService(services.generation_logs, cooldown_generator)
     first = cooldown_service.generate(context, cooldown_config)
     cooldown = cooldown_service.generate(context, cooldown_config)
-    if not first.allowed or cooldown.allowed or "cooldown" not in cooldown.status:
+    if not first.allowed or not cooldown.allowed or cooldown.status != "ai_cached:unchanged_context":
         raise RuntimeError(f"cooldown policy failed: first={first.status} cooldown={cooldown.status}")
     if cooldown_generator.calls != 1:
         raise RuntimeError(f"cooldown policy should avoid generator call, calls={cooldown_generator.calls}")
@@ -105,8 +107,8 @@ def main() -> int:
         raise RuntimeError(f"daily policy should avoid generator call, calls={daily_generator.calls}")
 
     audits = services.generation_logs.tail(10)
-    if not any(row.status.startswith("blocked:duplicate_context") for row in audits):
-        raise RuntimeError("duplicate block was not audited")
+    if not any(row.status == "ai_cached:unchanged_context" for row in audits):
+        raise RuntimeError("cached duplicate result was not audited")
     if not any(row.status.startswith("blocked:daily_limit") for row in audits):
         raise RuntimeError("daily limit block was not audited")
     print(f"cloud_calls={duplicate_generator.calls + cooldown_generator.calls + daily_generator.calls} audits={len(audits)}")

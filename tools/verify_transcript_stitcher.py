@@ -34,12 +34,27 @@ def main() -> int:
     jump = stitcher.observe("chat-1", [_msg(Speaker.ME, "X"), _msg(Speaker.OTHER, "Y")], observed_at="t5")
     if jump.reason != "no_reliable_overlap_pending_segment" or jump.pending_segment != 2:
         raise RuntimeError(jump)
+    if [item.text for item in jump.pending_messages] != ["X", "Y"]:
+        raise RuntimeError(f"pending visible segment was not retained: {jump.pending_messages}")
 
     partial = stitcher.observe("chat-2", [_msg(Speaker.OTHER, "边缘消息", partial=True), _msg(Speaker.ME, "稳定消息")], observed_at="t6")
     if [item.text for item in partial.messages] != ["稳定消息"]:
         raise RuntimeError(partial)
 
-    print(f"merged={len(up.messages)} pending={jump.pending_segment} partial_filtered={len(partial.messages)}")
+    timestamped = stitcher.observe(
+        "chat-3",
+        [_msg(Speaker.OTHER, "第一条"), _msg(Speaker.ME, "第二条")],
+        observed_at="2026-01-01T08:00:00+00:00",
+    )
+    if [item.message_time for item in timestamped.messages] != [
+        "2026-01-01T08:00:00+00:00",
+        "2026-01-01T08:00:00.001000+00:00",
+    ]:
+        raise RuntimeError(f"OCR fallback timestamps are not ordered: {timestamped.messages}")
+    if any(item.time_source != "ocr_observed" for item in timestamped.messages):
+        raise RuntimeError(f"OCR fallback timestamp source is missing: {timestamped.messages}")
+
+    print(f"merged={len(up.messages)} pending={jump.pending_segment} partial_filtered={len(partial.messages)} timestamped={len(timestamped.messages)}")
     return 0
 
 

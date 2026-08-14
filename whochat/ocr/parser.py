@@ -8,7 +8,7 @@ from pathlib import Path
 from whochat.core.models import Speaker
 from whochat.core.runtime import LayoutRegions, PageClassification, PageType, Rect
 from whochat.ocr.models import OcrRegion, OcrResult, OcrTextBox, ParsedOcrMessage
-from whochat.vision.bubbles import BubbleRegion, bubble_for_box, detect_bubbles
+from whochat.vision.bubbles import BubbleRegion, bubble_for_box, bubble_for_box_from_image, detect_bubbles
 
 
 def normalize_ocr_regions(result: OcrResult, layout: LayoutRegions) -> OcrResult:
@@ -119,45 +119,81 @@ def parse_visible_messages(result: OcrResult, layout: LayoutRegions) -> list[Par
     ]
     message_boxes.sort(key=lambda box: (box.rect.top, box.rect.left))
     timeline = _assign_time_anchors(message_boxes, layout)
-    sender_labels = _assign_sender_labels(message_boxes, layout, timeline["anchors"])
+    component_bubble_map = {box: bubble_for_box(box.rect, bubbles) for box in message_boxes}
+    sender_labels = _assign_sender_labels(message_boxes, layout, timeline["anchors"], component_bubble_map)
+    label_boxes = sender_labels["labels"]
+    bubble_map = {
+        box: None if box in label_boxes else _bubble_for_ocr_box(box, bubbles, normalized.source_image, layout)
+        for box in message_boxes
+    }
     filtered = [
         box for box in message_boxes
         if box not in timeline["anchors"]
         and box not in sender_labels["labels"]
         and not _looks_like_non_message_overlay(box, layout)
     ]
-    merged = _merge_message_fragments(filtered, layout)
+    merged = _merge_message_fragments(filtered, layout, bubble_map)
     return [
         _message_from_box(
             box,
             layout,
             timeline["times"].get(box),
             sender_labels["senders"].get(box),
-            bubble_for_box(box.rect, bubbles),
+            _bubble_for_ocr_box(box, bubbles, normalized.source_image, layout),
         )
         for box in merged
     ]
 
 
-def _merge_message_fragments(boxes: list[OcrTextBox], layout: LayoutRegions) -> list[OcrTextBox]:
+def _bubble_for_ocr_box(
+    box: OcrTextBox,
+    bubbles: list[BubbleRegion],
+    source_image: str,
+    layout: LayoutRegions,
+) -> BubbleRegion | None:
+    bubble = bubble_for_box(box.rect, bubbles)
+    if bubble is not None:
+        return bubble
+    if not source_image:
+        return None
+    return bubble_for_box_from_image(source_image, box.rect, layout)
+
+
+def _merge_message_fragments(
+    boxes: list[OcrTextBox],
+    layout: LayoutRegions,
+    bubble_map: dict[OcrTextBox, BubbleRegion | None] | None = None,
+) -> list[OcrTextBox]:
     if len(boxes) < 2:
         return boxes
     ordered = sorted(boxes, key=lambda box: (box.rect.top, box.rect.left))
     merged: list[OcrTextBox] = []
     current = ordered[0]
+    current_bubble = bubble_map.get(current) if bubble_map else None
     for box in ordered[1:]:
-        if _should_merge_fragments(current, box, layout):
+        next_bubble = bubble_map.get(box) if bubble_map else None
+        if _should_merge_fragments(current, box, layout, current_bubble, next_bubble):
             current = _merge_boxes(current, box)
+            current_bubble = current_bubble or next_bubble
         else:
             merged.append(current)
             current = box
+            current_bubble = next_bubble
     merged.append(current)
     return merged
 
 
-def _should_merge_fragments(left: OcrTextBox, right: OcrTextBox, layout: LayoutRegions) -> bool:
-    left_speaker, _left_reason = _speaker_from_geometry(left, layout)
-    right_speaker, _right_reason = _speaker_from_geometry(right, layout)
+def _should_merge_fragments(
+    left: OcrTextBox,
+    right: OcrTextBox,
+    layout: LayoutRegions,
+    left_bubble: BubbleRegion | None = None,
+    right_bubble: BubbleRegion | None = None,
+) -> bool:
+    if left_bubble is not None and right_bubble is not None and left_bubble != right_bubble:
+        return False
+    left_speaker, _left_reason = _speaker_from_geometry(left, layout, left_bubble)
+    right_speaker, _right_reason = _speaker_from_geometry(right, layout, right_bubble)
     if left_speaker != right_speaker:
         return False
     if _is_edge_partial_box(left, layout) or _is_edge_partial_box(right, layout):
@@ -264,13 +300,14 @@ def _assign_sender_labels(
     boxes: list[OcrTextBox],
     layout: LayoutRegions,
     ignored: set[OcrTextBox],
+    bubble_map: dict[OcrTextBox, BubbleRegion | None] | None = None,
 ) -> dict[str, object]:
     labels: set[OcrTextBox] = set()
     senders: dict[OcrTextBox, str] = {}
     usable = [box for box in boxes if box not in ignored and not _looks_like_non_message_overlay(box, layout)]
     for index, box in enumerate(usable):
-        next_box = _next_lower_left_message_box(box, usable[index + 1 :], layout)
-        if _looks_like_sender_label(box, next_box, layout):
+        next_box = _next_lower_left_message_box(box, usable[index + 1 :], layout, bubble_map)
+        if _looks_like_sender_label(box, next_box, layout, bubble_map):
             labels.add(box)
             senders[next_box] = box.text.strip()
     return {"labels": labels, "senders": senders}
@@ -280,32 +317,46 @@ def _next_lower_left_message_box(
     box: OcrTextBox,
     candidates: list[OcrTextBox],
     layout: LayoutRegions,
+    bubble_map: dict[OcrTextBox, BubbleRegion | None] | None = None,
 ) -> OcrTextBox | None:
-    max_gap = max(22, round(layout.message_rect.height * 0.045))
+    max_gap = max(34, round(layout.message_rect.height * 0.08))
     for candidate in candidates:
         if candidate.rect.top < box.rect.bottom:
             continue
         if candidate.rect.top - box.rect.bottom > max_gap:
             return None
-        if _is_left_bubble_lane(candidate, layout):
+        bubble = bubble_map.get(candidate) if bubble_map else None
+        if bubble is None and _looks_like_sender_label_text(candidate.text):
+            continue
+        if (bubble is not None and bubble.speaker == Speaker.OTHER) or _is_left_bubble_lane(candidate, layout):
             return candidate
     return None
 
 
-def _looks_like_sender_label(box: OcrTextBox, next_box: OcrTextBox | None, layout: LayoutRegions) -> bool:
+def _looks_like_sender_label(
+    box: OcrTextBox,
+    next_box: OcrTextBox | None,
+    layout: LayoutRegions,
+    bubble_map: dict[OcrTextBox, BubbleRegion | None] | None = None,
+) -> bool:
     text = box.text.strip()
     if next_box is None or not text:
+        return False
+    if bubble_map and bubble_map.get(box) is not None:
         return False
     if not _looks_like_sender_label_text(text):
         return False
     if not _is_left_label_lane(box, layout):
         return False
+    next_bubble = bubble_map.get(next_box) if bubble_map else None
+    if next_bubble is not None and next_bubble.speaker != Speaker.OTHER:
+        return False
     vertical_gap = next_box.rect.top - box.rect.bottom
     horizontal_gap = abs(next_box.rect.left - box.rect.left)
-    aligned_with_next = horizontal_gap <= max(42, round(layout.message_rect.width * 0.07))
+    aligned_with_next = horizontal_gap <= max(64, round(layout.message_rect.width * 0.12))
     compact_label = box.rect.height <= max(24, round(layout.message_rect.height * 0.045))
-    narrower_than_message = box.rect.width <= max(150, round(next_box.rect.width * 0.72))
-    return 0 <= vertical_gap <= max(22, round(layout.message_rect.height * 0.045)) and aligned_with_next and compact_label and narrower_than_message
+    narrower_than_message = box.rect.width <= max(190, round(next_box.rect.width * 0.88))
+    return 0 <= vertical_gap <= max(34, round(layout.message_rect.height * 0.08)) and aligned_with_next and compact_label and narrower_than_message
 
 
 def _looks_like_sender_label_text(text: str) -> bool:

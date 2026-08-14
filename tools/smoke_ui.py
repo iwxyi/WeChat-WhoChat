@@ -81,6 +81,8 @@ def main() -> int:
     )
     services.runtime._state = runtime_state
     main_window.update_runtime_state(runtime_state)
+    main_window._set_active_capture_contact(contact, 200)
+    main_window._sync_floating_content(contact=contact)
     floating = FloatingWidget()
     main_window.attach_floating_widget(floating)
     main_window.show()
@@ -96,8 +98,8 @@ def main() -> int:
         for column in range(table.columnCount())
         if table.item(row, column) is not None
     )
-    if "下午前能确认吗？" not in table_text:
-        raise RuntimeError("overview chat table did not render real message data")
+    if "尚未完成一次 OCR 采集" not in table_text:
+        raise RuntimeError("overview chat table did not clearly show missing latest OCR result")
     if "示例" in table_text:
         raise RuntimeError("overview chat table still contains demo rows")
     status_table = main_window._overview_status_table
@@ -114,9 +116,22 @@ def main() -> int:
         raise RuntimeError(f"overview status summary is incomplete: {status_summary}")
     next_action = main_window._overview_next_action.text()
     next_action_meta = main_window._overview_next_action_meta.text()
-    if "下一步：" not in next_action or "隐私" not in next_action_meta:
+    if "下一步：" not in next_action or not next_action_meta:
         raise RuntimeError(f"overview next action did not expose primary blocker: {next_action} / {next_action_meta}")
 
+    main_window._render_reply_suggestions(
+        ReplyGenerationResult(
+            True,
+            "local_preview",
+            [
+                ReplySuggestion("稳妥回复", "我先核对一下当前信息，确认后给你一个明确的回复。", "low", "verify"),
+                ReplySuggestion("简短回复", "收到，我处理后尽快回复你。", "low", "verify"),
+                ReplySuggestion("边界回复", "这个事项我需要先确认时间和影响范围，再给你准确安排。", "medium", "verify"),
+            ],
+            "Local Preview",
+        )
+    )
+    app.processEvents()
     grab_widget(main_window, out / "main_window.png")
     main_window._select_page("contacts")
     app.processEvents()
@@ -175,7 +190,6 @@ def main() -> int:
     print(f"strategies_page={out / 'strategies_page.png'}")
     print(f"memories_page={out / 'memories_page.png'}")
     print(f"settings_page={out / 'settings_page.png'}")
-    print(f"diagnostics_page={out / 'diagnostics_page.png'}")
     print(f"floating_widget={out / 'floating_widget.png'}")
     print(f"clipboard={clipboard_text}")
     QTimer.singleShot(0, app.quit)

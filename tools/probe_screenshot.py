@@ -18,7 +18,7 @@ def main() -> int:
     rect = (0, 0, 640, 360)
     output = out_dir / "screen_sample.png"
     if windows:
-        capturable = [item for item in windows if item.visible and item.foreground]
+        capturable = [item for item in windows if item.visible and not item.covered]
         if not capturable:
             window = max(windows, key=lambda item: (item.rect[2] - item.rect[0]) * (item.rect[3] - item.rect[1]))
             print(f"status=blocked source=wechat title={window.title!r} rect={window.rect}")

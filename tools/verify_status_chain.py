@@ -93,6 +93,33 @@ def main() -> int:
         provider_health=services.reply_generator.provider_health_summary(),
     )
     _assert_step(running_ocr_steps, "OCR", "运行中")
+    _assert_step(running_ocr_steps, "AI", "等待")
+
+    services.runtime.apply_pipeline_started()
+    refreshed_running_state = services.runtime.update_from_window_info(
+        WindowInfo(hwnd=1, title="微信", process_name="Weixin", rect=(0, 0, 1200, 800), visible=True)
+    )
+    refreshed_running_steps = build_status_chain(
+        runtime=refreshed_running_state,
+        contact=contact,
+        strategy=strategy,
+        config=config,
+        reply_running=False,
+        provider_health=services.reply_generator.provider_health_summary(),
+    )
+    _assert_step(refreshed_running_steps, "OCR", "运行中")
+    _assert_step(refreshed_running_steps, "AI", "等待")
+
+    retained_suggestion_steps = build_status_chain(
+        runtime=running_ocr_state,
+        contact=contact,
+        strategy=strategy,
+        config=config,
+        reply_running=False,
+        provider_health=services.reply_generator.provider_health_summary(),
+        has_active_suggestion=True,
+    )
+    _assert_step(retained_suggestion_steps, "AI", "保持")
 
     title_ready_state = replace(chat_state, ocr_pending=True, pipeline_status="title_ready")
     title_ready_steps = build_status_chain(
@@ -138,6 +165,20 @@ def main() -> int:
         provider_health=services.reply_generator.provider_health_summary(),
     )
     _assert_step(cooled_ocr_steps, "OCR", "等待")
+
+    duplicate_state = replace(chat_state, pipeline_status="discarded:duplicate_snapshot", visible_message_count=3)
+    duplicate_steps = build_status_chain(
+        runtime=duplicate_state,
+        contact=contact,
+        strategy=strategy,
+        config=config,
+        reply_running=False,
+        provider_health=services.reply_generator.provider_health_summary(),
+        has_active_suggestion=True,
+    )
+    _assert_step(duplicate_steps, "页面", "保持")
+    _assert_step(duplicate_steps, "OCR", "保持")
+    _assert_step(duplicate_steps, "AI", "保持")
 
     running_steps = build_status_chain(
         runtime=chat_state,

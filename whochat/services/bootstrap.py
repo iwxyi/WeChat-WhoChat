@@ -59,6 +59,7 @@ class AppServices:
 
     def shutdown(self) -> None:
         try:
+            self.autocapture.stop()
             self.autocapture.set_enabled(False)
         except Exception:
             pass
@@ -107,7 +108,7 @@ def build_services(db_path: Path | None = None) -> AppServices:
     )
     transcript_stitcher = TranscriptStitcher()
     ingestion = ChatIngestionService(contacts, messages, logs, transcript_stitcher)
-    autocapture = AutoCaptureController(runtime, pipeline, enabled=config.capture.auto_capture_enabled)
+    autocapture = AutoCaptureController(runtime, pipeline, enabled=config.capture.auto_capture_enabled, interval_ms=5000)
     reply_generator = ReplyGenerationService(generation_logs)
     reply_tasks = ReplyTaskService(reply_generator)
     pipeline.status_changed.connect(lambda message: runtime.apply_pipeline_started() if "pipeline_started" in message else None)

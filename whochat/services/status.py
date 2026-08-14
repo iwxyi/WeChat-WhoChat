@@ -23,6 +23,7 @@ def build_status_chain(
     config: AppConfig,
     reply_running: bool,
     provider_health: str,
+    has_active_suggestion: bool = False,
 ) -> list[StatusStep]:
     return [
         _window_step(runtime),
@@ -31,7 +32,7 @@ def build_status_chain(
         _capture_step(runtime),
         _ocr_step(runtime),
         _privacy_step(contact, strategy, config),
-        _ai_step(runtime, contact, strategy, config, reply_running, provider_health),
+        _ai_step(runtime, contact, strategy, config, reply_running, provider_health, has_active_suggestion),
     ]
 
 
@@ -54,10 +55,14 @@ def _window_step(runtime: RuntimeState) -> StatusStep:
 
 
 def _page_step(runtime: RuntimeState, config: AppConfig) -> StatusStep:
+    if runtime.pipeline_status.startswith("discarded:duplicate_snapshot") and runtime.visible_message_count > 0:
+        return StatusStep("页面", "保持", "截图未变化，沿用上次已确认的聊天页", "继续使用上次 OCR 和 AI 结果")
     if runtime.page.page_type in {PageType.CHAT_DM, PageType.CHAT_GROUP} and runtime.page.confidence >= 0.65:
         return StatusStep("页面", "通过", f"{runtime.page.page_type.value} / {runtime.page.confidence:.2f}", "可以生成回复建议")
     if not config.capture.pause_ai_on_unknown_page:
         return StatusStep("页面", "放行", f"{runtime.page.page_type.value} / {runtime.page.confidence:.2f}", "已允许未知页面继续，但建议确认内容无误")
+    if runtime.pipeline_status == "running":
+        return StatusStep("页面", "待确认", "OCR 正在运行，页面将在识别后自动确认", "等待当前 OCR 完成")
     if runtime.pipeline_status == "title_ready":
         return StatusStep("页面", "待确认", "标题已识别，消息仍在 OCR 读取中", "等待消息识别完成后自动确认页面")
     if runtime.capture_decision.should_capture and runtime.pipeline_status in {"idle", "title_ready"}:
@@ -99,7 +104,9 @@ def _ocr_step(runtime: RuntimeState) -> StatusStep:
     if status.startswith("discarded:pipeline_failed"):
         return StatusStep("OCR", "失败", status.removeprefix("discarded:pipeline_failed:") or status, "查看诊断页 OCR 日志，必要时切换 OCR Provider")
     if status.startswith("discarded:duplicate_snapshot"):
-        return StatusStep("OCR", "跳过", "截图与上次相同，未重复识别", "这是正常去重；切换聊天或滚动后会重新识别")
+        if runtime.visible_message_count > 0:
+            return StatusStep("OCR", "保持", "截图与上次相同，沿用上次 OCR 结果", "无需重复识别；聊天内容变化后会自动刷新")
+        return StatusStep("OCR", "跳过", "截图与上次相同，未重复识别", "等待首次有效 OCR 结果或切换聊天内容")
     if status.startswith("discarded:pipeline_busy"):
         return StatusStep("OCR", "等待", "上一轮 OCR 仍在运行", "等待当前 OCR 完成")
     if status.startswith("discarded:flow_cooldown"):
@@ -107,6 +114,22 @@ def _ocr_step(runtime: RuntimeState) -> StatusStep:
     if status.startswith("discarded:"):
         return StatusStep("OCR", "跳过", status.removeprefix("discarded:"), "根据原因调整窗口、页面或采集设置")
     return StatusStep("OCR", "等待", "尚无 OCR 采集结果", "打开聊天窗口后运行采集管线或启用自动采集")
+
+
+def primary_action_step(steps: list[StatusStep]) -> StatusStep:
+    for stage in ("OCR", "AI", "页面", "联系人", "窗口"):
+        for step in steps:
+            if step.stage != stage:
+                continue
+            if stage == "OCR" and step.state in {"运行中", "读取消息"}:
+                return step
+            if stage == "OCR" and step.state == "保持":
+                return step
+            if stage == "AI" and step.state in {"运行中", "就绪"}:
+                return step
+            if step.state in {"阻断", "待确认", "运行中", "读取消息"}:
+                return step
+    return steps[0]
 
 
 def _privacy_step(contact: Contact | None, strategy: Strategy | None, config: AppConfig) -> StatusStep:
@@ -126,6 +149,7 @@ def _ai_step(
     config: AppConfig,
     reply_running: bool,
     provider_health: str,
+    has_active_suggestion: bool,
 ) -> StatusStep:
     if reply_running:
         return StatusStep("AI", "运行中", "正在后台生成回复建议", "等待生成完成后再复制")
@@ -133,6 +157,14 @@ def _ai_step(
         return StatusStep("AI", "阻断", "AI 已在设置中禁用", "在设置页选择 Local Preview 或配置 Provider")
     if "status=backoff" in provider_health:
         return StatusStep("AI", "退避", provider_health, "检查 Provider 配置或点击恢复健康状态")
+    if runtime.ocr_pending:
+        if has_active_suggestion:
+            return StatusStep("AI", "保持", "OCR 正在刷新，继续保留上一轮回复建议", "等待 OCR 确认新上下文；当前建议仍可查看和复制")
+        return StatusStep("AI", "等待", "OCR 正在读取上下文，完成后自动生成建议", "等待当前 OCR 完成")
+    if runtime.pipeline_status.startswith("discarded:duplicate_snapshot") and runtime.visible_message_count > 0:
+        if has_active_suggestion:
+            return StatusStep("AI", "保持", "截图未变化，沿用上一轮回复建议", "当前建议仍可查看和复制；聊天内容变化后自动刷新")
+        return StatusStep("AI", "就绪", "截图未变化，沿用上次 OCR 上下文", "已有上下文可用于生成建议")
     blocking = [
         step
         for step in [
@@ -145,4 +177,4 @@ def _ai_step(
     if blocking:
         first = blocking[0]
         return StatusStep("AI", "阻断", f"{first.stage}未通过：{first.reason}", first.action)
-    return StatusStep("AI", "就绪", f"{config.ai.provider} / {config.ai.model}", "点击生成建议")
+    return StatusStep("AI", "就绪", f"{config.ai.provider} / {config.ai.model}", "OCR 完成后自动生成建议（3条）")

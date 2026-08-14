@@ -44,7 +44,9 @@ def main() -> int:
     main_window.targets_changed.connect(follower.set_targets)
     main_window.capture_mode_changed.connect(follower.set_foreground_only)
     follower.window_changed.connect(services.autocapture.on_window_changed)
-    follower.window_changed.connect(lambda window: _sync_floating(floating, window))
+    follower.window_changed.connect(
+        lambda window: _sync_floating(floating, window, foreground_only=follower.foreground_only)
+    )
     follower.status_changed.connect(main_window.append_log)
     services.autocapture.status_changed.connect(main_window.append_log)
     app.aboutToQuit.connect(follower.stop)
@@ -52,6 +54,7 @@ def main() -> int:
     app.aboutToQuit.connect(floating.close)
     main_window.show()
     follower.start()
+    services.autocapture.start()
     return app.exec()
 
 
@@ -59,12 +62,19 @@ def _sync_floating(
     floating: FloatingWidget,
     window,
     color_sampler: Callable[[tuple[int, int, int, int]], tuple[int, int, int] | None] | None = None,
+    foreground_only: bool = True,
 ) -> None:
     if window is None:
         floating.hide_for_window_state("未发现已启用的聊天窗口")
         return
-    if getattr(window, "minimized", False) or not getattr(window, "visible", True) or not getattr(window, "foreground", True):
+    if getattr(window, "minimized", False) or not getattr(window, "visible", True):
         floating.hide_for_window_state(getattr(window, "diagnostic", "") or "目标窗口不可见")
+        return
+    if getattr(window, "covered", False):
+        floating.hide_for_window_state(getattr(window, "diagnostic", "") or "目标窗口被遮挡")
+        return
+    if foreground_only and not getattr(window, "foreground", True):
+        floating.hide_for_window_state(getattr(window, "diagnostic", "") or "目标窗口不是前台窗口")
         return
     if hasattr(floating, "apply_window_color"):
         sampler = color_sampler or _average_window_color

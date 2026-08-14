@@ -264,18 +264,19 @@ class FloatingWidget(QWidget):
         fallback = [(f"回复{index + 1}", "") for index in range(3)]
         values = (suggestions + fallback)[:3]
         for index, (button, (label, text)) in enumerate(zip(self.suggestion_buttons, values)):
-            button.setText(_clip_label(label))
+            button.setText(_suggestion_preview(text, label))
             button.setToolTip(text if text else "当前没有可复制的建议")
             button.setProperty("reply_text", text)
             button.setEnabled(enabled and bool(text) and index < self._suggestion_count)
             button.setVisible(index < self._suggestion_count)
 
     def _suggestion_button(self, label: str, text: str) -> QWidget:
-        button = QPushButton(label)
+        button = QPushButton(_suggestion_preview(text, label))
         button.setObjectName("FloatingSuggestionButton")
         button.setToolTip(text)
         button.setProperty("reply_text", text)
         button.setFixedHeight(28)
+        button.setFixedWidth(104)
         button.clicked.connect(lambda checked=False, target=button: self._copy(str(target.property("reply_text") or "")))
         return button
 
@@ -372,6 +373,13 @@ class FloatingWidget(QWidget):
 def _clip_label(value: str) -> str:
     value = value.strip() or "回复"
     return value if len(value) <= 6 else value[:5] + "…"
+
+
+def _suggestion_preview(text: str, fallback_label: str) -> str:
+    value = " ".join(text.split())
+    if not value:
+        return _clip_label(fallback_label)
+    return value if len(value) <= 8 else value[:8] + "..."
 
 
 def _context_label(app_label: str, contact_name: str, group_name: str, max_len: int = 34) -> str:

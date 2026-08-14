@@ -76,7 +76,7 @@ def main() -> int:
         True,
         "local_preview",
         [
-            ReplySuggestion("稳妥", "这是第一条真实建议", "low", "verify"),
+            ReplySuggestion("稳妥", "这是第一条真实建议，需要完整保留。\n第二行不应撑高按钮。", "low", "verify"),
             ReplySuggestion("边界", "这是第二条真实建议", "medium", "verify"),
         ],
         "Local Preview",
@@ -85,11 +85,11 @@ def main() -> int:
     if floating.status_label.text() != "中风险":
         raise RuntimeError(f"floating risk status mismatch: {floating.status_label.text()}")
     first = buttons[0]
-    if first.text() != "稳妥" or first.toolTip() != "这是第一条真实建议":
+    if first.text() != "这是第一条真实建..." or first.toolTip() != "这是第一条真实建议，需要完整保留。\n第二行不应撑高按钮。":
         raise RuntimeError(f"floating suggestion button mismatch: {first.text()} / {first.toolTip()}")
     floating._copy(str(first.property("reply_text") or ""))
     copied = QApplication.clipboard().text()
-    if copied != "这是第一条真实建议":
+    if copied != "这是第一条真实建议，需要完整保留。\n第二行不应撑高按钮。":
         raise RuntimeError(f"floating copied wrong text: {copied}")
 
     print(f"contact={floating.contact_label.text()} group={floating.group_label.text()} copied={copied}")

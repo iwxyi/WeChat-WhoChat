@@ -38,7 +38,7 @@ class EnvironmentDiagnosticsService:
             _path_check("data_dir", app_data_dir(), must_write=True),
             _path_check("config_dir", config_dir(), must_write=True),
             _path_check("database_path", database_path().parent, must_write=True),
-            _secret_backend_check(),
+            EnvironmentCheck("config_secret_storage", "ok", "API Key 保存到本地配置文件；诊断和导出会脱敏"),
         ]
 
     def format_text(self) -> str:
@@ -77,11 +77,3 @@ def _paddle_timeout_detail() -> str:
     import os
 
     return f"{os.environ.get('WHOCHAT_PADDLEOCR_TIMEOUT_SECONDS', '90')}s"
-
-
-def _secret_backend_check() -> EnvironmentCheck:
-    if platform.system() != "Windows":
-        return EnvironmentCheck("secret_backend", "warning", "Windows Credential Manager unavailable on this platform")
-    if util.find_spec("win32cred") is None:
-        return EnvironmentCheck("secret_backend", "warning", "win32cred not installed; API key may fall back to config handling")
-    return EnvironmentCheck("secret_backend", "ok", "Windows Credential Manager module available")

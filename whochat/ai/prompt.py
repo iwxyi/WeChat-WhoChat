@@ -46,7 +46,7 @@ def system_prompt(context: ReplyContext) -> str:
     return "\n".join(
         [
             "你是本地桌面聊天助手，只生成用户可审核后复制的回复候选。",
-            "必须输出 JSON：{\"suggestions\":[{\"label\":\"\",\"text\":\"\",\"risk\":\"low|medium|high\",\"rationale\":\"\"}]}",
+            "必须恰好输出 3 条 json 候选：{\"suggestions\":[{\"label\":\"\",\"text\":\"\",\"risk\":\"low|medium|high\",\"rationale\":\"\"},{\"label\":\"\",\"text\":\"\",\"risk\":\"low|medium|high\",\"rationale\":\"\"},{\"label\":\"\",\"text\":\"\",\"risk\":\"low|medium|high\",\"rationale\":\"\"}]}",
             f"目标：{strategy.goal if strategy else '自然、稳妥'}",
             f"语气：{strategy.tone if strategy else '自然、清晰'}",
             f"禁忌：{strategy.avoid if strategy else '不要过度承诺，不要伪造事实'}",
@@ -58,7 +58,10 @@ def user_prompt(context: ReplyContext) -> str:
     messages = "\n".join(f"{_message_speaker_label(m)}: {m.text}" for m in context.messages[-20:])
     memories = "\n".join(f"- {m.kind.value}: {m.content}" for m in context.memories[:20])
     contact = context.contact.display_name if context.contact else "未知联系人"
-    return f"联系人：{contact}\n\n长期记忆：\n{memories or '-'}\n\n最近聊天：\n{messages or '-'}"
+    return (
+        "请只返回合法 JSON 对象，字段必须符合 system message 中的 suggestions 结构。\n\n"
+        f"联系人：{contact}\n\n长期记忆：\n{memories or '-'}\n\n最近聊天：\n{messages or '-'}"
+    )
 
 
 def _message_speaker_label(message) -> str:

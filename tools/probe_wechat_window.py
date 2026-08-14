@@ -20,7 +20,7 @@ def main() -> int:
         print(
             f"hwnd={window.hwnd} process={window.process_name!r} "
             f"title={window.title!r} rect={window.rect} visible={window.visible} "
-            f"foreground={window.foreground} diagnostic={window.diagnostic!r}"
+            f"foreground={window.foreground} covered={window.covered} diagnostic={window.diagnostic!r}"
         )
     return 0
 

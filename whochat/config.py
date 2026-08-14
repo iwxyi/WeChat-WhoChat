@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from whochat.core.paths import config_dir
-from whochat.security.secrets import AI_API_KEY_NAME, SecretStore
 
 
 @dataclass
@@ -30,7 +29,7 @@ class PrivacyConfig:
     enable_long_term_memory: bool = True
     save_debug_screenshots: bool = False
     trim_context_for_cloud: bool = True
-    require_cloud_prompt_review: bool = True
+    require_cloud_prompt_review: bool = False
     manual_protection_blocks_replies: bool = True
     diagnostic_log_retention_days: int = 14
     debug_sample_retention_days: int = 14
@@ -88,17 +87,15 @@ class AppConfig:
 class ConfigStore:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or default_config_path()
-        self.secrets = SecretStore()
 
     def load(self) -> AppConfig:
         if not self.path.exists():
             config = AppConfig()
             config.targets = default_target_windows()
-            config.ai.api_key = self.secrets.get(AI_API_KEY_NAME)
             return config
         data = json.loads(self.path.read_text(encoding="utf-8"))
         capture_data = _migrate_capture_config(data.get("capture", {}))
-        config = AppConfig(
+        return AppConfig(
             ai=AIProviderConfig(**data.get("ai", {})),
             privacy=PrivacyConfig(**data.get("privacy", {})),
             ocr=OcrConfig(**data.get("ocr", {})),
@@ -106,19 +103,12 @@ class ConfigStore:
             floating=FloatingConfig(**data.get("floating", {})),
             targets=_load_targets(data.get("targets")),
         )
-        secret = self.secrets.get(AI_API_KEY_NAME)
-        if secret and not config.ai.api_key:
-            config.ai.api_key = secret
-        return config
 
     def save(self, config: AppConfig) -> str:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         data: dict[str, Any] = asdict(config)
-        secret_result = self.secrets.set(AI_API_KEY_NAME, config.ai.api_key)
-        if secret_result.ok and secret_result.backend != "none":
-            data["ai"]["api_key"] = ""
         self.path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        return secret_result.backend
+        return "config_file"
 
 
 def default_config_path() -> Path:
@@ -135,8 +125,6 @@ def _migrate_capture_config(value: Any) -> dict[str, Any]:
         migrated["ocr_min_interval_ms"] = CaptureConfig.ocr_min_interval_ms
     elif int(migrated.get("ocr_min_interval_ms") or 0) == 30000 and "foreground_only" not in value:
         migrated["ocr_min_interval_ms"] = CaptureConfig.ocr_min_interval_ms
-    if "auto_capture_enabled" in migrated and migrated["auto_capture_enabled"] is False and "foreground_only" not in value:
-        migrated["auto_capture_enabled"] = True
     return migrated
 
 

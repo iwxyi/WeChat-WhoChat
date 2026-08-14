@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -32,6 +33,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QSpinBox,
     QStackedWidget,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -45,7 +47,7 @@ from whochat.ai.generator import test_ai_connection
 from whochat.ai.prompt import PromptPreview, build_prompt_preview
 from whochat.config import AppConfig, ConfigStore, TargetWindowConfig
 from whochat.capture.screenshot import capture_rect
-from whochat.core.models import Contact, ContactStatus, ConversationType, IdentityStatus, Memory, MemoryKind, MemoryStatus, Speaker, Strategy
+from whochat.core.models import Contact, ContactStatus, ConversationType, IdentityStatus, Memory, MemoryKind, MemoryStatus, Message, Speaker, Strategy
 from whochat.core.models import utc_now_iso
 from whochat.core.runtime import LayoutRegions, Rect, RuntimeState, TargetApp, ThemeMode, WindowState
 from whochat.core.paths import app_data_dir
@@ -58,7 +60,7 @@ from whochat.security.redaction import redact_diagnostics_payload, redact_diagno
 from whochat.services.bootstrap import AppServices, build_services
 from whochat.services.reply_tasks import ReplyTaskResult
 from whochat.services.reply import context_hash as _reply_context_hash
-from whochat.services.status import build_status_chain
+from whochat.services.status import build_status_chain, primary_action_step
 from whochat.ui.calibration_overlay import CalibrationCanvas
 
 
@@ -75,7 +77,6 @@ NAV_ITEMS = [
     NavItem("strategies", "分组", "目标与语气策略"),
     NavItem("memories", "记忆", "摘要与待确认信息"),
     NavItem("settings", "设置", "AI、隐私与采集"),
-    NavItem("diagnostics", "诊断", "日志与识别调试"),
 ]
 
 
@@ -560,18 +561,24 @@ def _message_speaker_label(message, speaker_map: dict[str, str]) -> str:
     return base
 
 
+def _message_content_key(speaker: Speaker, sender_name: str, text: str) -> tuple[str, str, str]:
+    return (
+        speaker.value,
+        "".join(sender_name.split()).lower(),
+        "".join(text.split()).lower(),
+    )
+
+
+def _message_key_counts(messages: list[Message]) -> dict[tuple[str, str, str], int]:
+    counts: dict[tuple[str, str, str], int] = {}
+    for message in messages:
+        key = _message_content_key(message.speaker, message.sender_name, message.text)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
 def _primary_status_step(steps):
-    for state in ["阻断", "失败", "退避"]:
-        found = next((step for step in steps if step.state == state), None)
-        if found is not None:
-            return found
-    found = next((step for step in steps if step.stage == "OCR" and step.state in {"运行中", "读取消息", "等待"}), None)
-    if found is not None:
-        return found
-    found = next((step for step in steps if step.stage == "AI"), None)
-    if found is not None:
-        return found
-    return steps[-1]
+    return primary_action_step(steps)
 
 
 def _should_show_overview_capture(state: RuntimeState) -> bool:
@@ -640,6 +647,9 @@ class MainWindow(QMainWindow):
         self._overview_capture_button: QPushButton | None = None
         self._overview_status_table: QTableWidget | None = None
         self._overview_chat_table: QTableWidget | None = None
+        self._last_ocr_messages = None
+        self._last_ocr_result_meta: dict[str, object] | None = None
+        self._last_ocr_contact_id: str | None = None
         self._overview_contact_values: dict[str, QLabel] = {}
         self._overview_contact_notes: QTextEdit | None = None
         self._strategy_table: QTableWidget | None = None
@@ -647,7 +657,10 @@ class MainWindow(QMainWindow):
         self._strategy_show_archived: QCheckBox | None = None
         self._memory_tabs: QTabWidget | None = None
         self._suggestions_panel: QFrame | None = None
+        self._suggestions_scroll: QScrollArea | None = None
         self._suggestion_result: ReplyGenerationResult | None = None
+        self._suggestion_context_hash: str | None = None
+        self._reply_retry_pending = False
         self._active_capture_contact_id: str | None = None
         self._active_capture_hwnd: int | None = None
         self._privacy_long_memory: QCheckBox | None = None
@@ -707,6 +720,7 @@ class MainWindow(QMainWindow):
         self._services.runtime.state_changed.connect(self.update_runtime_state)
         self._services.pipeline.title_ready.connect(self._on_pipeline_title_ready)
         self._services.pipeline.result_ready.connect(self._on_pipeline_result_ready)
+        self._services.pipeline.result_discarded.connect(self._on_pipeline_discarded)
         self._services.reply_tasks.result_ready.connect(self._on_reply_task_ready)
         self._services.reply_tasks.result_discarded.connect(self._on_reply_task_discarded)
         self._services.reply_tasks.status_changed.connect(self._on_reply_task_status_changed)
@@ -732,13 +746,8 @@ class MainWindow(QMainWindow):
     def update_runtime_state(self, state: RuntimeState) -> None:
         if state.window.hwnd != self._active_capture_hwnd:
             self._clear_active_capture_context("window_changed")
-        if state.window.state != WindowState.VISIBLE or not state.capture_decision.should_capture:
+        if state.window.state != WindowState.VISIBLE:
             self._clear_active_capture_context("window_unavailable")
-        elif state.ocr_pending and state.pipeline_status == "running":
-            # A conversation can change without changing the desktop window
-            # handle. Do not leave the previous contact's reply copyable while
-            # the title fast-path is determining the new conversation.
-            self._clear_active_capture_context("conversation_recheck")
         if self._page_status_value is not None:
             self._page_status_value.setText(state.page.page_type.value)
         if self._page_status_subtitle is not None:
@@ -928,7 +937,6 @@ class MainWindow(QMainWindow):
             "strategies": ("分组", "目标、语气、禁忌和手动保护。", self._build_strategies_page()),
             "memories": ("记忆", "长期记忆、临时事项和待确认内容。", self._build_memories_page()),
             "settings": ("设置", "AI Provider、隐私、采集和验证。", self._build_settings_page()),
-            "diagnostics": ("诊断", "窗口识别、OCR、AI 请求和队列状态。", self._build_diagnostics_page()),
         }
         for key, (title, subtitle, page) in pages.items():
             self._page_titles[key] = title
@@ -936,6 +944,8 @@ class MainWindow(QMainWindow):
             self._pages.addWidget(page)
 
     def _select_page(self, key: str) -> None:
+        if key == "diagnostics":
+            key = "overview"
         keys = [item.key for item in NAV_ITEMS]
         index = keys.index(key)
         self._pages.setCurrentIndex(index)
@@ -1000,6 +1010,14 @@ class MainWindow(QMainWindow):
             self._runtime_text.setText(self._format_runtime_state(self._services.runtime.state))
 
     def _on_pipeline_result_ready(self, _result) -> None:
+        self._last_ocr_messages = list(_result.messages)
+        self._last_ocr_result_meta = {
+            "job_id": _result.job_id,
+            "created_at": _result.created_at,
+            "page": _result.page.page_type.value,
+            "page_confidence": _result.page.confidence,
+            "warning": _result.ocr_result.warning or "",
+        }
         ingestion = self._services.ingestion.last_result
         if ingestion is None:
             self.append_log("pipeline_result_ready: no ingestion result", "warning")
@@ -1011,10 +1029,33 @@ class MainWindow(QMainWindow):
         self._reload_contact_list(select_contact_id=ingestion.contact.id if ingestion.contact else None)
         if ingestion.contact:
             self._set_active_capture_contact(ingestion.contact, _result.hwnd)
+            if ingestion.accepted:
+                self._last_ocr_contact_id = ingestion.contact.id
             self._render_contact_detail(ingestion.contact)
         self._refresh_overview_data()
+        if ingestion.accepted and ingestion.contact and _result.messages:
+            QTimer.singleShot(0, self._auto_generate_reply_after_ocr)
         if self._runtime_text is not None:
             self._runtime_text.setText(self._format_runtime_state(self._services.runtime.state))
+
+    def _on_pipeline_discarded(self, reason: str) -> None:
+        self.append_log(f"pipeline_discarded: {reason}")
+        self._refresh_overview_data()
+        if not reason.startswith("duplicate_snapshot") or not self._should_retry_ai_after_duplicate():
+            return
+        QTimer.singleShot(0, self._auto_generate_reply_after_ocr)
+
+    def _should_retry_ai_after_duplicate(self) -> bool:
+        if self._services.reply_tasks.is_running or self._has_active_suggestion():
+            return False
+        result = self._suggestion_result
+        if result is None:
+            return True
+        if result.status.startswith("reply_pending"):
+            return False
+        if not result.status.startswith("blocked:"):
+            return True
+        return "provider_backoff" in result.status or "cooldown" in result.status
 
     def _build_page_shell(self, left: QWidget, right: QWidget | None = None) -> QWidget:
         page = QWidget()
@@ -1023,7 +1064,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(10)
         layout.addWidget(left, 1)
         if right is not None:
-            right.setFixedWidth(280)
+            right.setFixedWidth(344)
             layout.addWidget(right)
         return page
 
@@ -1101,20 +1142,26 @@ class MainWindow(QMainWindow):
         status_chain.layout().addWidget(status_table)
         layout.addWidget(status_chain)
 
-        suggestions = self._panel("回复建议", "仅在聊天页、聊天对象与策略通过安全门控后生成；默认只复制，不自动发送。")
-        self._suggestions_panel = suggestions
-        self._render_reply_suggestions(self._build_reply_result())
-        layout.addWidget(suggestions)
-
-        current_chat = self._panel("当前可见聊天", "用于核对 OCR 是否把消息归属、顺序和文本识别正确。")
-        table = QTableWidget(0, 5)
-        table.setHorizontalHeaderLabels(["归属", "内容", "置信度", "时间来源", "状态"])
+        current_chat = self._panel("最近一次 OCR 结果", "只显示最近一次完整采集解析出的消息，不混入历史记录。")
+        self._overview_chat_meta = QLabel("尚未完成 OCR 采集")
+        self._overview_chat_meta.setObjectName("TinyMuted")
+        current_chat.layout().addWidget(self._overview_chat_meta)
+        table = QTableWidget(0, 6)
+        table.setHorizontalHeaderLabels(["说话人", "发送者", "内容", "时间", "置信度", "状态"])
         _compact_table(table)
+        table.setWordWrap(True)
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self._overview_chat_table = table
         current_chat.layout().addWidget(table)
         layout.addWidget(current_chat, 1)
 
         right = self._build_context_rail()
+        self._render_reply_suggestions(self._build_reply_result())
         self._refresh_overview_data()
         return self._build_page_shell(left, right)
 
@@ -1169,6 +1216,8 @@ class MainWindow(QMainWindow):
         self._active_capture_hwnd = hwnd
         if changed:
             self._suggestion_result = None
+            self._suggestion_context_hash = None
+            self._last_ocr_contact_id = None
 
     def _clear_active_capture_context(self, reason: str) -> None:
         if self._active_capture_contact_id is None and self._active_capture_hwnd is None:
@@ -1176,6 +1225,8 @@ class MainWindow(QMainWindow):
         self._active_capture_contact_id = None
         self._active_capture_hwnd = None
         self._suggestion_result = None
+        self._suggestion_context_hash = None
+        self._last_ocr_contact_id = None
         self.append_log(f"active_capture_context_cleared: {reason}")
 
     def _refresh_overview_data(self) -> None:
@@ -1189,6 +1240,7 @@ class MainWindow(QMainWindow):
                 config=self._config,
                 reply_running=self._services.reply_tasks.is_running,
                 provider_health=self._services.reply_generator.provider_health_summary(),
+                has_active_suggestion=self._has_active_suggestion(),
             )
             if self._overview_status_summary is not None:
                 self._overview_status_summary.setText(" -> ".join(f"{step.stage}:{step.state}" for step in steps))
@@ -1208,6 +1260,8 @@ class MainWindow(QMainWindow):
         if self._overview_chat_table is not None:
             rows = self._overview_chat_rows(contact)
             self._fill_table(self._overview_chat_table, rows)
+            if hasattr(self, "_overview_chat_meta"):
+                self._overview_chat_meta.setText(self._overview_chat_summary())
         if not self._overview_contact_values and self._overview_contact_notes is None:
             return
         if contact is None:
@@ -1258,6 +1312,7 @@ class MainWindow(QMainWindow):
                 config=self._config,
                 reply_running=self._services.reply_tasks.is_running,
                 provider_health=self._services.reply_generator.provider_health_summary(),
+                has_active_suggestion=self._has_active_suggestion(),
             )
             ai_step = next((step for step in steps if step.stage == "AI"), steps[-1])
             ocr_step = next((step for step in steps if step.stage == "OCR"), None)
@@ -1272,24 +1327,26 @@ class MainWindow(QMainWindow):
                 app_label=runtime.window.app_label,
             )
             if display_step.stage == "OCR":
-                if hasattr(self._floating, "disable_suggestions"):
+                if self._has_active_suggestion() and hasattr(self._floating, "update_reply_result"):
+                    self._floating.update_reply_result(self._suggestion_result)
+                elif hasattr(self._floating, "disable_suggestions"):
                     self._floating.disable_suggestions()
                 return
             if ai_step.state not in {"就绪", "运行中"}:
-                self._floating.update_reply_result(
-                    ReplyGenerationResult(False, f"blocked:{ai_step.reason}", [], self._config.ai.provider)
-                )
+                if self._has_active_suggestion() and hasattr(self._floating, "update_reply_result"):
+                    self._floating.update_reply_result(self._suggestion_result)
+                else:
+                    self._floating.update_reply_result(
+                        ReplyGenerationResult(False, f"blocked:{ai_step.reason}", [], self._config.ai.provider)
+                    )
                 return
         if self._suggestion_result is not None and hasattr(self._floating, "update_reply_result"):
             self._floating.update_reply_result(self._suggestion_result)
 
     def _overview_chat_rows(self, contact: Contact | None) -> list[tuple[str, ...]]:
-        if contact is None:
-            state = self._services.runtime.state
-            return [("系统", f"{state.status_label}：{state.page.reason}", "-", "runtime", "等待")]
-        messages = list(reversed(self._services.messages.list_for_contact(contact.id, 12)))
-        if not messages:
-            return [("系统", "当前聊天对象暂无已入库聊天记录。运行采集管线或等待自动采集后会显示。", "-", "local", "空")]
+        messages = self._last_ocr_messages
+        if messages is None:
+            return [("系统", "-", "尚未完成一次 OCR 采集", "-", "-", "等待")]
         speaker_map = {
             "me": "我",
             "other": "对方",
@@ -1297,21 +1354,36 @@ class MainWindow(QMainWindow):
             "system": "系统",
             "unknown": "未知",
         }
-        return [
-            (
-                _message_speaker_label(message, speaker_map),
-                message.text,
-                "-" if message.ocr_confidence is None else f"{message.ocr_confidence:.2f}",
-                message.time_source,
-                "截断" if message.partial else message.source,
-            )
-            for message in messages
-        ]
+        if not messages:
+            meta = self._last_ocr_result_meta or {}
+            warning = str(meta.get("warning") or "无")
+            return [("系统", "-", f"本次 OCR 未解析出消息；warning={warning}", "-", "-", "空")]
+        rows: list[tuple[str, ...]] = []
+        for message in messages:
+            speaker = speaker_map.get(message.speaker.value, message.speaker.value)
+            sender = message.sender_name or ("我" if message.speaker.value == "me" else "对方")
+            # This column is the time printed in the chat UI. Never substitute
+            # the OCR completion time when the screenshot has no time anchor.
+            time_text = message.time_text or "未识别"
+            status = "不完整" if message.partial else "已解析"
+            rows.append((speaker, sender, message.text, time_text, f"{message.confidence:.2f}", status))
+        return rows
+
+    def _overview_chat_summary(self) -> str:
+        meta = self._last_ocr_result_meta
+        if meta is None:
+            return "尚未完成 OCR 采集"
+        warning = str(meta.get("warning") or "")
+        warning_text = f"；warning={warning}" if warning else ""
+        return (
+            f"job={meta.get('job_id', '-')} · page={meta.get('page', '-')} "
+            f"· 解析 {len(self._last_ocr_messages or [])} 条 · 采集完成 {meta.get('created_at', '-')}{warning_text}"
+        )
 
     def _build_reply_context(self) -> ReplyContext:
         contact = self._active_capture_contact()
         strategy = self._services.strategies.get(contact.strategy_id) if contact else self._services.strategies.get("default")
-        messages = self._services.messages.list_for_contact(contact.id, 30) if contact else []
+        messages = self._reply_messages_for_contact(contact) if contact else []
         memories = self._services.memories.list_for_contact(contact.id) if contact else []
         return ReplyContext(
             runtime=self._services.runtime.state,
@@ -1321,10 +1393,58 @@ class MainWindow(QMainWindow):
             memories=memories,
         )
 
+    def _reply_messages_for_contact(self, contact: Contact) -> list[Message]:
+        # Repository reads newest first for UI lists. Prompt input is chronological so the
+        # last prompt lines remain the newest conversation turn.
+        history = list(reversed(self._services.messages.list_for_contact(contact.id, 60)))
+        if self._last_ocr_contact_id != contact.id or not self._last_ocr_messages:
+            return history[-30:]
+
+        seen = _message_key_counts(history)
+        live_messages: list[Message] = []
+        observed_at = str((self._last_ocr_result_meta or {}).get("created_at") or utc_now_iso())
+        for index, parsed in enumerate(self._last_ocr_messages):
+            text = str(getattr(parsed, "text", "")).strip()
+            speaker = getattr(parsed, "speaker", Speaker.UNKNOWN)
+            sender_name = str(getattr(parsed, "sender_name", "") or "").strip()
+            if not text or getattr(parsed, "partial", False) or speaker in {Speaker.SYSTEM, Speaker.UNKNOWN}:
+                continue
+            key = _message_content_key(speaker, sender_name, text)
+            if seen.get(key, 0):
+                seen[key] -= 1
+                continue
+            fingerprint = hashlib.sha256(f"{contact.id}|{key}|{index}".encode("utf-8")).hexdigest()[:32]
+            live_messages.append(
+                Message(
+                    id=f"live:{fingerprint}",
+                    contact_id=contact.id,
+                    speaker=speaker,
+                    text=text,
+                    content_type="text",
+                    ocr_confidence=getattr(parsed, "confidence", None),
+                    observed_at=observed_at,
+                    message_time=None,
+                    time_source="observed",
+                    partial=False,
+                    fingerprint=f"live:{fingerprint}",
+                    source="ocr_live_context",
+                    sender_name=sender_name,
+                )
+            )
+        return [*history, *live_messages][-30:]
+
+    def _has_active_suggestion(self) -> bool:
+        result = self._suggestion_result
+        return bool(result and result.allowed and result.suggestions)
+
     def _build_reply_result(self) -> ReplyGenerationResult:
         return self._services.reply_generator.generate(self._build_reply_context(), self._config)
 
     def _render_reply_suggestions(self, result: ReplyGenerationResult) -> None:
+        if not result.allowed and self._has_active_suggestion():
+            self.append_log(f"reply_suggestions_retained: incoming={result.status}")
+            self._sync_floating_content()
+            return
         self._suggestion_result = result
         self._sync_floating_content()
         if self._suggestions_panel is None:
@@ -1342,85 +1462,124 @@ class MainWindow(QMainWindow):
                     nested_widget = nested_item.widget()
                     if nested_widget is not None:
                         nested_widget.deleteLater()
-        status = QLabel(f"状态：{result.status} · Provider：{result.provider}")
-        status.setObjectName("TinyMuted")
-        status.setMaximumHeight(18)
-        status.setToolTip(result.status)
         context = self._build_reply_context()
-        evidence = QLabel(_reply_evidence_summary(context, result))
-        evidence.setObjectName("TinyMuted")
-        evidence.setMaximumHeight(18)
-        evidence.setToolTip(_reply_evidence_detail(context, result))
-        actions = QHBoxLayout()
-        actions.addWidget(status, 1)
-        refresh = QPushButton("生成建议")
-        refresh.setObjectName("PrimaryButton")
-        refresh.clicked.connect(self._refresh_reply_suggestions)
-        actions.addWidget(refresh)
-        actions.addStretch(1)
-        layout.addLayout(actions)
-        layout.addWidget(evidence)
+        meta = QLabel(_clip_debug_text(f"{result.provider} · {len(result.suggestions)} 条建议", 28))
+        meta.setObjectName("TinyMuted")
+        meta.setMaximumHeight(18)
+        meta.setToolTip(_reply_evidence_detail(context, result))
+        layout.addWidget(meta)
         if result.status.startswith("reply_pending"):
             pending = QLabel("生成中")
             pending.setObjectName("Muted")
             layout.addWidget(pending)
+            self._resize_suggestion_list_to_content()
             return
         if not result.allowed:
             blocked = QLabel(f"已阻断：{result.status}")
             blocked.setObjectName("Muted")
+            blocked.setWordWrap(True)
             blocked.setToolTip("确认聊天页、聊天对象、分组策略和 AI 设置后再生成。")
             layout.addWidget(blocked)
+            self._resize_suggestion_list_to_content()
             return
         for suggestion in result.suggestions:
             layout.addWidget(self._suggestion_row(suggestion))
+        self._resize_suggestion_list_to_content()
 
-    def _refresh_reply_suggestions(self) -> None:
+    def _resize_suggestion_list_to_content(self) -> None:
+        if self._suggestions_panel is None:
+            return
+        layout = self._suggestions_panel.layout()
+        layout.activate()
+        self._suggestions_panel.setMinimumHeight(layout.sizeHint().height())
+        self._suggestions_panel.updateGeometry()
+
+    def _refresh_reply_suggestions(self, *, automatic: bool = False) -> None:
         context = self._build_reply_context()
-        if self._requires_cloud_prompt_review(context) and not self._confirm_cloud_prompt(context):
+        digest = _reply_context_hash(context)
+        if automatic and self._has_active_suggestion() and self._suggestion_context_hash == digest:
+            self.append_log("auto_reply_reused: unchanged_context")
+            self.statusBar().showMessage("聊天上下文未变化，继续显示上一轮回复建议", 2500)
+            self._refresh_overview_data()
+            return
+        if not automatic and self._requires_cloud_prompt_review(context) and not self._confirm_cloud_prompt(context):
             self.statusBar().showMessage("已取消云端 AI 请求", 2500)
             self.append_log("reply_suggestions_cancelled: cloud_prompt_review")
             self._refresh_overview_data()
             return
         job_id = self._services.reply_tasks.submit(context, self._config)
         if job_id is None:
+            self._reply_retry_pending = True
             self.statusBar().showMessage("AI 正在生成上一条建议，请稍后", 2500)
             self.append_log("reply_suggestions_skipped: busy", "warning")
             self._refresh_overview_data()
             return
-        pending = ReplyGenerationResult(False, f"reply_pending: job={job_id}", [], self._config.ai.provider)
-        self._render_reply_suggestions(pending)
+        self._reply_retry_pending = False
+        if not self._has_active_suggestion():
+            pending = ReplyGenerationResult(False, f"reply_pending: job={job_id}", [], self._config.ai.provider)
+            self._render_reply_suggestions(pending)
+        else:
+            self._sync_floating_content()
         self._refresh_overview_data()
         self.statusBar().showMessage("正在生成回复建议", 2500)
         self.append_log(f"reply_suggestions_submitted: job={job_id}")
 
+    def _auto_generate_reply_after_ocr(self) -> None:
+        context = self._build_reply_context()
+        if context.contact is None or not context.messages:
+            self.append_log("auto_reply_skipped: contact_or_messages_unavailable", "warning")
+            return
+        retained_chat_page = (
+            context.runtime.pipeline_status.startswith("discarded:duplicate_snapshot")
+            and context.runtime.visible_message_count > 0
+        )
+        if not context.runtime.page.can_generate_reply and not retained_chat_page:
+            self.append_log(f"auto_reply_skipped: page={context.runtime.page.page_type.value}")
+            return
+        self.append_log(f"auto_reply_triggered: ocr_completed messages={len(context.messages)}")
+        self._refresh_reply_suggestions(automatic=True)
+
     def _on_reply_task_ready(self, task: ReplyTaskResult) -> None:
         current = self._build_reply_context()
         current_contact_id = current.contact.id if current.contact else None
-        runtime_ready = not current.runtime.ocr_pending and current.runtime.pipeline_status.startswith("finished:")
         if (
             task.contact_id != current_contact_id
             or task.hwnd != current.runtime.window.hwnd
             or task.window_title != current.runtime.window.title
-            or not runtime_ready
         ):
+            self._render_reply_suggestions(
+                ReplyGenerationResult(False, "blocked:reply_context_changed", [], self._config.ai.provider)
+            )
             self.append_log(
                 (
                     "reply_suggestions_stale: "
                     f"job={task.job_id}, task_contact={task.contact_id or '-'}, "
                     f"current_contact={current_contact_id or '-'}, task_hwnd={task.hwnd or '-'}, "
                     f"current_hwnd={current.runtime.window.hwnd or '-'}, "
-                    f"task_title={task.window_title or '-'}, current_title={current.runtime.window.title or '-'}, "
-                    f"runtime_ready={runtime_ready}"
+                    f"task_title={task.window_title or '-'}, current_title={current.runtime.window.title or '-'}"
                 ),
                 "warning",
             )
-            self._render_reply_suggestions(
-                ReplyGenerationResult(False, "blocked:reply_context_changed", [], self._config.ai.provider)
-            )
-            self.statusBar().showMessage("聊天对象已变化，已丢弃旧建议", 2500)
+            self._reply_retry_pending = True
+            self.statusBar().showMessage("上下文已变化，保留旧建议，等待新请求", 2500)
             self._refresh_overview_data()
+            QTimer.singleShot(0, self._auto_generate_reply_after_ocr)
+            return
+        current_digest = _reply_context_hash(current)
+        if task.context_digest and task.context_digest != current_digest:
+            self.append_log(
+                f"reply_suggestions_context_changed: job={task.job_id} task={task.context_digest[:12]} current={current_digest[:12]}",
+                "warning",
+            )
+            self._reply_retry_pending = True
+            self.statusBar().showMessage("聊天内容已更新，正在等待新一轮回复建议", 2500)
+            self._refresh_overview_data()
+            if not current.runtime.ocr_pending and current.runtime.page.can_generate_reply:
+                QTimer.singleShot(0, self._auto_generate_reply_after_ocr)
             return
         self._render_reply_suggestions(task.result)
+        if task.result.allowed and task.result.suggestions:
+            self._suggestion_context_hash = current_digest
         self.append_log(f"reply_suggestions_ready: job={task.job_id}, allowed={task.result.allowed}, status={task.result.status}")
         self.statusBar().showMessage("回复建议已更新", 2500)
         self._refresh_generation_log_text()
@@ -1455,6 +1614,7 @@ class MainWindow(QMainWindow):
             config=self._config,
             reply_running=False,
             provider_health=self._services.reply_generator.provider_health_summary(),
+            has_active_suggestion=self._has_active_suggestion(),
         )
         ai_step = next((step for step in steps if step.stage == "AI"), steps[-1])
         if ai_step.state == "就绪":
@@ -1514,31 +1674,38 @@ class MainWindow(QMainWindow):
     def _suggestion_row(self, suggestion: ReplySuggestion) -> QWidget:
         row = QFrame()
         row.setObjectName("MetricCard")
-        layout = QGridLayout(row)
+        row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        layout = QVBoxLayout(row)
         layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(5)
+        header = QHBoxLayout()
         tag = QLabel(suggestion.label)
         tag.setObjectName("Badge")
         tag.setMinimumWidth(58)
+        tag.setMaximumWidth(76)
         tag.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tag.setText(_clip_debug_text(suggestion.label, 8))
+        tag.setToolTip(suggestion.label)
         body = QLabel(suggestion.text)
         body.setWordWrap(True)
+        body.setMinimumHeight(34)
+        body.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        body.setToolTip(suggestion.text)
         risk_label = QLabel(f"risk: {suggestion.risk}")
         risk_label.setObjectName("TinyMuted")
         risk_label.setToolTip(suggestion.rationale)
-        risk_label.setText(f"{suggestion.risk} · {_clip_debug_text(suggestion.rationale, 72)}")
-        useful = QPushButton("好用")
-        useful.clicked.connect(lambda: self._record_reply_feedback(suggestion, "useful"))
-        bad = QPushButton("不合适")
-        bad.clicked.connect(lambda: self._record_reply_feedback(suggestion, "bad"))
+        risk_label.setText(suggestion.risk)
         copy = QPushButton("复制")
+        copy.setObjectName("PrimaryButton")
+        copy.setFixedSize(48, 24)
+        copy.setToolTip("复制完整回复")
         copy.clicked.connect(lambda: self._copy_reply_suggestion(suggestion.text))
-        layout.addWidget(tag, 0, 0)
-        layout.addWidget(body, 0, 1, 1, 2)
-        layout.addWidget(risk_label, 1, 1)
-        layout.addWidget(useful, 1, 2)
-        layout.addWidget(bad, 1, 3)
-        layout.addWidget(copy, 0, 4, 2, 1)
-        layout.setColumnStretch(1, 1)
+        header.addWidget(tag)
+        header.addWidget(risk_label)
+        header.addStretch(1)
+        header.addWidget(copy)
+        layout.addLayout(header)
+        layout.addWidget(body)
         return row
 
     def _copy_reply_suggestion(self, text: str) -> None:
@@ -1616,7 +1783,26 @@ class MainWindow(QMainWindow):
         action_grid.addWidget(merge, 0, 1)
         action_grid.addWidget(protect, 1, 0, 1, 2)
         layout.addLayout(action_grid)
-        layout.addStretch(1)
+
+        suggestions_title = QLabel("回复建议")
+        suggestions_title.setObjectName("SectionTitle")
+        layout.addWidget(suggestions_title)
+        suggestions_scroll = QScrollArea()
+        suggestions_scroll.setObjectName("SuggestionScroll")
+        suggestions_scroll.setWidgetResizable(True)
+        suggestions_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        suggestions_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        suggestions_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        suggestions_scroll.setMinimumHeight(156)
+        suggestions_scroll.setMaximumHeight(336)
+        suggestions = self._panel("", "仅在聊天页、聊天对象与策略通过安全门控后生成；默认只复制，不自动发送。")
+        suggestions.layout().itemAt(0).widget().hide()
+        suggestions.setObjectName("SuggestionList")
+        suggestions.setMinimumWidth(300)
+        suggestions_scroll.setWidget(suggestions)
+        self._suggestions_panel = suggestions
+        self._suggestions_scroll = suggestions_scroll
+        layout.addWidget(suggestions_scroll, 1)
         return rail
 
     def _kv(self, key: str, value: str) -> tuple[QWidget, QLabel]:
@@ -1627,6 +1813,8 @@ class MainWindow(QMainWindow):
         k.setObjectName("Muted")
         v = QLabel(value)
         v.setObjectName("Badge")
+        v.setMaximumWidth(190)
+        v.setWordWrap(True)
         layout.addWidget(k)
         layout.addStretch(1)
         layout.addWidget(v)
@@ -1652,13 +1840,11 @@ class MainWindow(QMainWindow):
         self._contact_members_text = self._readonly_text("群成员", "仅群聊可用。")
         self._contact_chat_text = self._readonly_text("聊天记录", "暂无聊天记录。")
         self._contact_memory_text = self._readonly_text("记忆", "暂无记忆。")
-        self._contact_feedback_text = self._readonly_text("回复反馈", "暂无回复反馈。")
         tabs.addTab(self._contact_profile_text, "画像")
         tabs.addTab(self._contact_identity_text, "身份")
         tabs.addTab(self._contact_members_text, "群成员")
         tabs.addTab(self._contact_chat_text, "聊天记录")
         tabs.addTab(self._contact_memory_text, "记忆")
-        tabs.addTab(self._contact_feedback_text, "回复反馈")
         detail.layout().addWidget(tabs)
         actions = QGridLayout()
         actions.setSpacing(6)
@@ -1918,13 +2104,11 @@ class MainWindow(QMainWindow):
         self._privacy_debug_retention = _days_spin(self._config.privacy.debug_sample_retention_days)
         self._privacy_capture_retention = _days_spin(self._config.privacy.capture_retention_days)
         self._privacy_calibration_retention = _days_spin(self._config.privacy.calibration_retention_days)
-        self._privacy_feedback_retention = _days_spin(self._config.privacy.reply_feedback_retention_days)
         for row, (label, widget) in enumerate([
             ("日志保留", self._privacy_log_retention),
             ("调试样本", self._privacy_debug_retention),
             ("截图缓存", self._privacy_capture_retention),
             ("校准样本", self._privacy_calibration_retention),
-            ("回复反馈", self._privacy_feedback_retention),
         ]):
             retention_form.addWidget(QLabel(label), row // 2, (row % 2) * 2)
             retention_form.addWidget(widget, row // 2, (row % 2) * 2 + 1)
@@ -2048,6 +2232,25 @@ class MainWindow(QMainWindow):
         target_actions.addStretch(1)
         targets.layout().addLayout(target_actions)
         layout.addWidget(targets)
+
+        tools = self._panel("排障工具", "总览显示当前运行链路；这里保留主动执行的维护操作。")
+        tool_actions = QHBoxLayout()
+        copy_logs = QPushButton("复制运行日志")
+        copy_logs.setToolTip("复制已脱敏的运行链路、OCR、AI 和窗口信息")
+        copy_logs.clicked.connect(self._copy_diagnostics_bundle)
+        save_sample = QPushButton("保存调试样本")
+        save_sample.setToolTip("保存当前采集结果和脱敏诊断信息，便于复现识别问题")
+        save_sample.clicked.connect(self._save_debug_sample)
+        run_pipeline = QPushButton("立即采集")
+        run_pipeline.setObjectName("PrimaryButton")
+        run_pipeline.clicked.connect(self._run_capture_pipeline)
+        recalibrate = QPushButton("重新校准区域")
+        recalibrate.clicked.connect(self._open_calibration_dialog)
+        for button in (copy_logs, save_sample, run_pipeline, recalibrate):
+            tool_actions.addWidget(button)
+        tool_actions.addStretch(1)
+        tools.layout().addLayout(tool_actions)
+        layout.addWidget(tools)
 
         layout.addStretch(1)
         scroll.setWidget(body)
@@ -2541,7 +2744,7 @@ class MainWindow(QMainWindow):
         self._render_contact_detail(contact)
 
     def _render_contact_detail(self, contact: Contact) -> None:
-        messages = self._services.messages.list_for_contact(contact.id, 50)
+        messages = list(reversed(self._services.messages.list_for_contact(contact.id, 50)))
         memories = self._services.memories.list_for_contact(contact.id)
         aliases = self._services.contacts.list_aliases(contact.id)
         linked_people = self._services.identities.list_people_for_contact(contact.id)
@@ -3296,6 +3499,12 @@ class MainWindow(QMainWindow):
             self.append_log(f"settings_save_failed: {validation_error}", "warning")
             return
         before = _redacted_config_snapshot(self._config)
+        previous_connection = (
+            self._config.ai.provider,
+            self._config.ai.base_url,
+            self._config.ai.model,
+            self._config.ai.api_key,
+        )
         previous_api_key = self._config.ai.api_key
         submitted_api_key = self._ai_api_key.text()
         self._config.ai.provider = self._ai_provider.currentText()
@@ -3313,7 +3522,7 @@ class MainWindow(QMainWindow):
         self._config.privacy.enable_long_term_memory = self._privacy_long_memory.isChecked() if self._privacy_long_memory else True
         self._config.privacy.save_debug_screenshots = self._privacy_debug_screenshots.isChecked() if self._privacy_debug_screenshots else False
         self._config.privacy.trim_context_for_cloud = self._privacy_trim_cloud.isChecked() if self._privacy_trim_cloud else True
-        self._config.privacy.require_cloud_prompt_review = self._privacy_cloud_review.isChecked() if self._privacy_cloud_review else True
+        self._config.privacy.require_cloud_prompt_review = self._privacy_cloud_review.isChecked() if self._privacy_cloud_review else False
         self._config.privacy.manual_protection_blocks_replies = self._privacy_manual_blocks.isChecked() if self._privacy_manual_blocks else True
         self._sync_retention_config_from_ui()
         self._config.ocr.provider = self._ocr_provider.currentText() if self._ocr_provider else "Preview Fixture"
@@ -3332,6 +3541,12 @@ class MainWindow(QMainWindow):
         self._config.floating.opacity_percent = self._floating_opacity.value() if self._floating_opacity else 96
         self._config.floating.suggestion_count = self._floating_suggestion_count.value() if self._floating_suggestion_count else 3
         self._config.targets = parsed_targets
+        current_connection = (
+            self._config.ai.provider,
+            self._config.ai.base_url,
+            self._config.ai.model,
+            self._config.ai.api_key,
+        )
         self._services.autocapture.set_enabled(self._config.capture.auto_capture_enabled)
         self.capture_mode_changed.emit(self._config.capture.foreground_only)
         self._services.runtime.capture_gate.policy = replace(
@@ -3354,6 +3569,10 @@ class MainWindow(QMainWindow):
             )
         self.targets_changed.emit(self._config.targets)
         secret_backend = self._config_store.save(self._config)
+        provider_changed = previous_connection != current_connection
+        if provider_changed:
+            health_summary = self._services.reply_generator.reset_provider_health("provider_settings_changed")
+            self.append_log(f"ai_provider_health_reset_after_settings_change: {health_summary}", "info")
         changes = _config_changes(before, _redacted_config_snapshot(self._config))
         if previous_api_key != self._config.ai.api_key or submitted_api_key:
             changes["ai.api_key"] = {
@@ -3378,12 +3597,8 @@ class MainWindow(QMainWindow):
             f"ai_settings_saved: provider={self._config.ai.provider}, model={self._config.ai.model}, "
             f"changes={len(changes)}, secret_backend={secret_backend}"
         )
-        if secret_backend == "unavailable":
-            self.statusBar().showMessage("AI 设置已保存，但密钥安全存储不可用", 4000)
-            self._set_ai_action_status("已保存，密钥安全存储不可用")
-        else:
-            self.statusBar().showMessage("AI 设置已保存", 3000)
-            self._set_ai_action_status("设置已保存")
+        self.statusBar().showMessage("AI 设置已保存到配置文件", 3000)
+        self._set_ai_action_status("设置已保存，已恢复 Provider 健康状态" if provider_changed else "设置已保存")
         self._resume_reply_flow_if_unblocked("settings_saved")
 
     def _settings_validation_error(self, parsed_targets: list[TargetWindowConfig]) -> str:

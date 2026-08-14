@@ -26,6 +26,7 @@ class ReplyGenerationService:
         self.health_store = health_store or ProviderHealthStore()
         self.last_audit_id: str | None = None
         self._last_cloud_attempt_at: datetime | None = None
+        self._suggestion_cache: dict[tuple[str, str, str, str], ReplyGenerationResult] = {}
         snapshot = self.health_store.load()
         self.consecutive_cloud_failures = snapshot.consecutive_failures
         self.provider_backoff_until = _parse_ts(snapshot.backoff_until) if snapshot.backoff_until else None
@@ -35,12 +36,19 @@ class ReplyGenerationService:
         digest = context_hash(context)
         cloud_may_attempt = _cloud_request_may_be_attempted(context, config)
         result = self._blocked_by_request_policy(digest, config) if cloud_may_attempt else None
+        cache_key = _suggestion_cache_key(digest, config)
+        if result is not None and cloud_may_attempt:
+            cached = self._suggestion_cache.get(cache_key)
+            if cached is not None:
+                result = ReplyGenerationResult(True, "ai_cached:unchanged_context", cached.suggestions, cached.provider)
         if result is None:
             if cloud_may_attempt:
                 self._last_cloud_attempt_at = datetime.now(timezone.utc)
             result = self.generator.generate(context, config)
             if cloud_may_attempt:
                 self._apply_provider_health(result, config)
+        if cloud_may_attempt and result.allowed and result.suggestions:
+            self._suggestion_cache[cache_key] = result
         audit = self.audit_logs.append(
             contact_id=context.contact.id if context.contact else None,
             strategy_id=context.strategy.id if context.strategy else None,
@@ -146,11 +154,13 @@ def context_hash(context: ReplyContext) -> str:
     payload = {
         "contact_id": context.contact.id if context.contact else None,
         "strategy_id": context.strategy.id if context.strategy else None,
-        "page_type": context.runtime.page.page_type.value,
         "messages": [
             {
                 "speaker": message.speaker.value,
                 "fingerprint": message.fingerprint,
+                "text": " ".join(message.text.split()),
+                "sender_name": message.sender_name,
+                "message_time": message.message_time,
                 "observed_at": message.observed_at,
                 "partial": message.partial,
             }
@@ -168,6 +178,15 @@ def context_hash(context: ReplyContext) -> str:
     }
     serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _suggestion_cache_key(digest: str, config: AppConfig) -> tuple[str, str, str, str]:
+    return (
+        digest,
+        config.ai.provider,
+        config.ai.base_url.strip().rstrip("/"),
+        config.ai.model.strip(),
+    )
 
 
 def _cloud_request_may_be_attempted(context: ReplyContext, config: AppConfig) -> bool:

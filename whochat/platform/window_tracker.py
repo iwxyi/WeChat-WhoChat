@@ -19,6 +19,7 @@ class WindowInfo:
     diagnostic: str = ""
     foreground: bool = True
     bubble_profile: str = "auto"
+    covered: bool = False
 
 
 @dataclass(frozen=True)
@@ -67,20 +68,25 @@ def find_target_windows(targets: list[TargetWindowConfig]) -> list[WindowInfo]:
             left, top, right, bottom = win32gui.GetWindowRect(hwnd)
             minimized = bool(win32gui.IsIconic(hwnd))
             foreground = foreground_hwnd is None or hwnd == foreground_hwnd
+            covered = _window_is_covered(hwnd, (left, top, right, bottom))
             windows.append(
                 WindowInfo(
                     hwnd=hwnd,
                     title=title,
                     process_name=process_name,
                     rect=(left, top, right, bottom),
-                    visible=visible and not minimized and foreground,
+                    # Visibility is a native window property.  Losing focus
+                    # does not make a window invisible and must not be treated
+                    # as proof that another window covers it.
+                    visible=visible and not minimized,
                     target_app=target.app_id,
                     app_label=target.label,
                     process_id=process_id,
                     minimized=minimized,
-                    diagnostic=_window_diagnostic(title, process_name, minimized, foreground),
+                    diagnostic=_window_diagnostic(title, process_name, minimized, foreground, covered),
                     foreground=foreground,
                     bubble_profile=target.bubble_profile,
+                    covered=covered,
                 )
             )
         except Exception:
@@ -287,11 +293,49 @@ def _normalize_process_name(value: str) -> str:
     return cleaned
 
 
-def _window_diagnostic(title: str, process_name: str, minimized: bool, foreground: bool) -> str:
+def _window_diagnostic(title: str, process_name: str, minimized: bool, foreground: bool, covered: bool = False) -> str:
     if minimized:
         return "目标窗口已最小化，悬浮窗和采集会暂停"
+    if covered:
+        return "目标窗口部分被其他窗口遮挡，屏幕截图可能不完整，已暂停采集"
     if not foreground:
-        return "目标窗口不是当前前景窗口；屏幕截图会被上层窗口遮挡，已暂停采集"
+        return "目标窗口可见但不是当前前景窗口；未检测到遮挡"
     if not process_name:
         return "仅通过窗口标题匹配，未读取到目标进程名；若采集失败，请检查权限或补充进程名规则"
     return ""
+
+
+def _window_is_covered(hwnd: int, rect: tuple[int, int, int, int]) -> bool:
+    """Sample the target's surface without confusing focus with occlusion."""
+    try:
+        import win32gui
+
+        left, top, right, bottom = rect
+        if right <= left or bottom <= top:
+            return True
+        root = int(win32gui.GetAncestor(hwnd, 2) or hwnd)
+        margin_x = max(8, min(24, (right - left) // 12))
+        margin_y = max(8, min(24, (bottom - top) // 12))
+        points = (
+            (left + margin_x, top + margin_y),
+            (right - margin_x, top + margin_y),
+            (left + margin_x, bottom - margin_y),
+            (right - margin_x, bottom - margin_y),
+            ((left + right) // 2, (top + bottom) // 2),
+        )
+        foreign = 0
+        for x, y in points:
+            hit = int(win32gui.WindowFromPoint((x, y)) or 0)
+            if not hit:
+                foreign += 1
+                continue
+            hit_root = int(win32gui.GetAncestor(hit, 2) or hit)
+            if hit_root != root:
+                foreign += 1
+        # One point can land on a border, shadow, or transient tooltip. Require
+        # two independent samples before reporting actual occlusion.
+        return foreign >= 2
+    except Exception:
+        # A failed probe is unknown, not covered. Foreground policy can still
+        # protect users who explicitly enabled it.
+        return False

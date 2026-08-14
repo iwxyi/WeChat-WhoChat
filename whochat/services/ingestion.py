@@ -79,7 +79,7 @@ class ChatIngestionService:
         )
         _add_raw_title_alias(self.contacts, contact, raw_title, title)
         if contact.status == ContactStatus.UNCONFIRMED:
-            contact = self.contacts.update_profile(contact.id, status=ContactStatus.SUSPECTED)
+            contact = self.contacts.update_profile(contact.id, status=ContactStatus.SUSPECTED, allow_cloud_ai=True)
 
         stitch = self.transcript_stitcher.observe(
             contact.id,
@@ -87,6 +87,13 @@ class ChatIngestionService:
             observed_at=result.created_at,
         )
         new_messages = _new_stitched_messages(stitch.messages, stitch.inserted_before, stitch.inserted_after)
+        persisted_pending_segment = False
+        if not new_messages and stitch.pending_messages:
+            # The visible OCR segment is complete but cannot safely be placed before or after
+            # the in-memory transcript. Persist it with content dedupe so it remains visible
+            # in chat history without claiming a false chronological merge.
+            new_messages = list(stitch.pending_messages)
+            persisted_pending_segment = True
         inserted = 0
         duplicate = 0
         for stitched in new_messages:
@@ -99,6 +106,8 @@ class ChatIngestionService:
         visible_duplicates = stitch.duplicate_visible if not new_messages else 0
         duplicate += visible_duplicates
         reason = f"messages_ingested:{stitch.reason}"
+        if persisted_pending_segment:
+            reason += ":persisted_visible_fallback"
         return self._finish(
             IngestionResult(True, reason, contact, inserted, duplicate, tuple(_title_candidate_debug_lines(result.ocr_result, result)))
         )

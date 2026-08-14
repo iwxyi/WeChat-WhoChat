@@ -54,7 +54,11 @@ class TargetWindowFollowController(QObject):
             self.window_changed.emit(None)
             return None
         focused = foreground_window_handle()
-        window = next((item for item in windows if item.hwnd == focused), None)
+        # Prefer an exact foreground handle. Do not infer that every window
+        # marked visible is focused, especially when several targets exist.
+        window = next((item for item in windows if item.hwnd == focused and item.visible), None)
+        if window is None and focused is None:
+            window = next((item for item in windows if item.foreground and item.visible), None)
         if window is None:
             if self.foreground_only:
                 self._last_hwnd = None
@@ -64,6 +68,12 @@ class TargetWindowFollowController(QObject):
                 return None
             window = max(windows, key=lambda item: (item.rect[2] - item.rect[0]) * (item.rect[3] - item.rect[1]))
             window = _as_background_test_window(window)
+        elif self.foreground_only and (window.minimized or not window.visible or not window.foreground):
+            self._last_hwnd = None
+            self._last_signature = None
+            self.status_changed.emit("当前前台窗口不是已启用的聊天窗口")
+            self.window_changed.emit(None)
+            return None
         # Position alone is not enough. In relaxed/background mode a target
         # can keep the same rect while losing foreground, becoming minimized,
         # or changing its diagnostic safety state.
@@ -104,7 +114,9 @@ def _as_background_test_window(window: WindowInfo) -> WindowInfo:
         app_label=window.app_label,
         process_id=window.process_id,
         minimized=window.minimized,
-        diagnostic="后台测试模式：目标窗口不是前台，截图可能被遮挡",
+        diagnostic=("后台测试模式：目标窗口部分被遮挡，截图可能不完整" if window.covered else
+                    "后台测试模式：目标窗口可见但不是前台，未检测到遮挡"),
         foreground=False,
         bubble_profile=window.bubble_profile,
+        covered=window.covered,
     )

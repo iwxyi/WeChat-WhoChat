@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, Signal
 
 from whochat.capture.policy import CaptureGate
-from whochat.core.runtime import CapturePolicy, RuntimeState, missing_runtime_state
+from whochat.core.runtime import CapturePolicy, PageClassification, RuntimeState, missing_runtime_state
 from whochat.services.pipeline import PipelineResult
 from whochat.platform.adapters import PlatformAdapter, WeChatAdapter
 from whochat.platform.window_tracker import WindowInfo
@@ -24,6 +24,7 @@ class RuntimeStateService(QObject):
         self.capture_gate = CaptureGate(capture_policy or CapturePolicy())
         self._state = missing_runtime_state()
         self._paused = False
+        self._last_confirmed_page: PageClassification | None = None
 
     @property
     def state(self) -> RuntimeState:
@@ -38,6 +39,8 @@ class RuntimeStateService(QObject):
 
     def update_from_window_info(self, window: WindowInfo | None) -> RuntimeState:
         window_snapshot = self.adapter.window_snapshot(window)
+        if window_snapshot.hwnd != self._state.window.hwnd:
+            self._last_confirmed_page = None
         layout = self.adapter.estimate_layout(window_snapshot)
         page = self.adapter.classify_page(window_snapshot, layout)
         provisional = RuntimeState(
@@ -46,6 +49,8 @@ class RuntimeStateService(QObject):
             page=page,
             capture_decision=self._state.capture_decision,
             paused=self._paused,
+            ai_pending=self._state.ai_pending,
+            ocr_pending=self._state.ocr_pending,
             last_snapshot_hash=self._state.last_snapshot_hash,
             visible_message_count=self._state.visible_message_count,
             pipeline_status=self._state.pipeline_status,
@@ -57,6 +62,8 @@ class RuntimeStateService(QObject):
             page=page,
             capture_decision=decision,
             paused=self._paused,
+            ai_pending=self._state.ai_pending,
+            ocr_pending=self._state.ocr_pending,
             last_snapshot_hash=self._state.last_snapshot_hash,
             visible_message_count=self._state.visible_message_count,
             pipeline_status=self._state.pipeline_status,
@@ -83,6 +90,8 @@ class RuntimeStateService(QObject):
     def apply_pipeline_result(self, result: PipelineResult) -> RuntimeState:
         if result.hwnd != self._state.window.hwnd:
             return self._state
+        if result.page.can_generate_reply:
+            self._last_confirmed_page = result.page
         self._state = RuntimeState(
             window=self._state.window,
             layout=self._state.layout,
@@ -117,10 +126,13 @@ class RuntimeStateService(QObject):
         return self._state
 
     def apply_pipeline_discarded(self, reason: str) -> RuntimeState:
+        retained_page = self._state.page
+        if reason.startswith("duplicate_snapshot") and self._state.visible_message_count > 0 and self._last_confirmed_page:
+            retained_page = self._last_confirmed_page
         self._state = RuntimeState(
             window=self._state.window,
             layout=self._state.layout,
-            page=self._state.page,
+            page=retained_page,
             capture_decision=self._state.capture_decision,
             paused=self._state.paused,
             ocr_pending=False,
@@ -147,4 +159,5 @@ def _window_info_from_state(state: RuntimeState) -> WindowInfo | None:
         diagnostic=state.window.diagnostic,
         foreground=state.window.foreground,
         bubble_profile=state.window.bubble_profile,
+        covered=state.window.covered,
     )

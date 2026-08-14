@@ -78,7 +78,7 @@ def main() -> int:
     engine = create_ocr_engine(ocr_config)
 
     title_started = time.monotonic()
-    title_result = _offset_ocr_result(engine.recognize(title_image_path, title_layout), title_offset)
+    title_result = _offset_ocr_result(engine.recognize(title_image_path, title_layout), title_offset, image_path)
     title_elapsed_ms = _elapsed_ms(title_started)
     title_probe = _minimal_result(window, image_path, title_image_path, title_crop_rect, layout, title_result)
     title_candidates = extract_title_candidates(title_result, title_probe, min_confidence=args.min_confidence)
@@ -86,15 +86,17 @@ def main() -> int:
     page_type = "-"
     message_count = "-"
     content_elapsed_ms = "-"
+    parsed_messages = []
     if args.messages:
         content_image_path, content_layout, content_offset, _content_crop_rect = _prepare_ocr_input(image_path, layout)
         content_started = time.monotonic()
-        content_result = _offset_ocr_result(engine.recognize(content_image_path, content_layout), content_offset)
+        content_result = _offset_ocr_result(engine.recognize(content_image_path, content_layout), content_offset, image_path)
         content_elapsed_ms = str(_elapsed_ms(content_started))
         merged = normalize_ocr_regions(_merge_ocr_results(title_result, content_result), layout)
         page = classify_page_from_ocr(merged, layout)
         page_type = page.page_type.value
-        message_count = str(len(parse_visible_messages(merged, layout)))
+        parsed_messages = parse_visible_messages(merged, layout)
+        message_count = str(len(parsed_messages))
 
     print("status=ok")
     print(f"target={window.target_app} label={window.app_label} hwnd={window.hwnd} process={window.process_name}")
@@ -106,6 +108,14 @@ def main() -> int:
     if not args.redact and title_candidates:
         print("title_candidate=" + title_candidates[0])
     print(f"page_type={page_type} message_count={message_count} content_elapsed_ms={content_elapsed_ms}")
+    if args.messages and not args.redact:
+        for index, message in enumerate(parsed_messages[:20], start=1):
+            reason = " ".join(message.reason.split())
+            _safe_print(
+                f"message[{index}]=speaker:{message.speaker.value} sender:{message.sender_name or '-'} "
+                f"partial:{message.partial} conf:{message.confidence:.2f} rect:{message.rect.as_tuple()} "
+                f"text:{message.text!r} reason:{reason}"
+            )
     return 0
 
 

@@ -25,6 +25,7 @@ from whochat.core.models import ContactStatus
 from whochat.core.runtime import PageClassification, PageType
 from whochat.platform.window_tracker import WindowInfo
 from whochat.services.bootstrap import build_services
+from whochat.services.reply import context_hash
 from whochat.services.reply_tasks import ReplyTaskResult
 from whochat.ui.floating_widget import FloatingWidget
 from whochat.ui.main_window import MainWindow
@@ -100,7 +101,28 @@ def main() -> int:
     if not buttons[0].isEnabled() or buttons[0].property("reply_text") != "这是当前联系人建议":
         raise RuntimeError("matching reply result did not update floating buttons")
 
-    print(f"stale={stale_task.contact_id} current={second.id} matching_enabled={buttons[0].isEnabled()}")
+    running_context = window._build_reply_context()
+    services.runtime._state = replace(services.runtime.state, ocr_pending=True, pipeline_status="running")
+    running_task = ReplyTaskResult(
+        job_id=3,
+        contact_id=second.id,
+        hwnd=runtime.window.hwnd,
+        window_title=runtime.window.title,
+        context_digest=context_hash(running_context),
+        result=ReplyGenerationResult(
+            True,
+            "local_preview",
+            [ReplySuggestion("OCR 中返回", "OCR 期间也应显示这条建议", "low", "verify")],
+            "Local Preview",
+        ),
+    )
+    window._on_reply_task_ready(running_task)
+    if window._suggestion_result is None or not window._suggestion_result.allowed:
+        raise RuntimeError("same-context reply should be accepted while a new OCR cycle runs")
+    if buttons[0].property("reply_text") != "OCR 期间也应显示这条建议":
+        raise RuntimeError("OCR-running reply did not update floating buttons")
+
+    print(f"stale={stale_task.contact_id} current={second.id} matching_enabled={buttons[0].isEnabled()} ocr_running=accepted")
     window.close()
     floating.close()
     app.quit()
